@@ -1,7 +1,13 @@
+import os
+import json
+import datetime
+import threading
+import asyncio
 import discord
 from discord.ext import commands, tasks
-import datetime, asyncio, json, os
+from flask import Flask
 
+# === Discord Bot Setup ===
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
@@ -32,8 +38,11 @@ async def check_reminders():
     remaining = []
     for r in reminders:
         if r["time"] <= now:
-            user = await bot.fetch_user(r["user_id"])
-            await user.send(f"🔔 リマインド: {r['message']}")
+            try:
+                user = await bot.fetch_user(r["user_id"])
+                await user.send(f"🔔 リマインド: {r['message']}")
+            except Exception as e:
+                print(f"❌ Failed to send reminder: {e}")
         else:
             remaining.append(r)
     save_reminders(remaining)
@@ -55,6 +64,6 @@ async def remindat(ctx, time_str: str, *, message: str):
         save_reminders(reminders)
         await ctx.send(f"⏰ {time_str} にリマインドを設定しました！")
     except Exception as e:
-        await ctx.send(f"⚠️ 時刻の形式が正しくありません: {e}")
+        await ctx.send(f"⚠️ 時刻形式が正しくありません: {e}")
 
-bot.run(TOKEN)
+# === Flask
