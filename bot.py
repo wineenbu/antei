@@ -1,13 +1,8 @@
 import os
 import json
 import datetime
-import threading
-import asyncio
 import discord
 from discord.ext import commands, tasks
-from flask import Flask
-from keep_alive import keep_alive
-
 
 # === Discord Bot Setup ===
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -55,8 +50,9 @@ async def remindat(ctx, time_str: str, *, message: str):
     例: !remindat 2025-10-28T08:30 リハーサル
     """
     try:
+        # ISO形式で受け取り、JSTからUTCに変換
         remind_time = datetime.datetime.fromisoformat(time_str)
-        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC換算
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)
         reminders = load_reminders()
         reminders.append({
             "user_id": ctx.author.id,
@@ -67,6 +63,7 @@ async def remindat(ctx, time_str: str, *, message: str):
         await ctx.send(f"⏰ {time_str} にリマインドを設定しました！")
     except Exception as e:
         await ctx.send(f"⚠️ 時刻形式が正しくありません: {e}")
+
 if __name__ == "__main__":
-    keep_alive()  # Flaskサーバーがあるなら
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    # Flaskサーバー不要なので keep_alive() は削除
+    bot.run(TOKEN)
