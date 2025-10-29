@@ -1,5 +1,0 @@
-services:
-  - type: worker
-    name: antei-bot
-    env: python
-    startCommand: python bot.py
