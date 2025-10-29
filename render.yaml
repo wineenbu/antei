@@ -1,9 +1,5 @@
 services:
-  - type: web
-    name: discord-reminder-bot
+  - type: worker
+    name: antei-bot
     env: python
-    plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: python3 bot.py
-
-
+    startCommand: python bot.py

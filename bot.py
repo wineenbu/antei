@@ -58,12 +58,3 @@ async def remindat(ctx, time_str: str, *, message: str):
         reminders = load_reminders()
         reminders.append({
             "user_id": ctx.author.id,
-            "time": remind_time_utc.timestamp(),
-            "message": message
-        })
-        save_reminders(reminders)
-        await ctx.send(f"⏰ {time_str} にリマインドを設定しました！")
-    except Exception as e:
-        await ctx.send(f"⚠️ 時刻形式が正しくありません: {e}")
-
-# === Flask
