@@ -57,4 +57,7 @@ async def remindat(ctx, time_str: str, *, message: str):
         remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC換算
         reminders = load_reminders()
         reminders.append({
-            "user_id": ctx.author.id,
+    "user_id": ctx.author.id,
+    "time": remind_time_utc.timestamp(),
+    "message": message
+})
