@@ -6,6 +6,8 @@ import asyncio
 import discord
 from discord.ext import commands, tasks
 from flask import Flask
+from keep_alive import keep_alive
+
 
 # === Discord Bot Setup ===
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -65,3 +67,6 @@ async def remindat(ctx, time_str: str, *, message: str):
         await ctx.send(f"⏰ {time_str} にリマインドを設定しました！")
     except Exception as e:
         await ctx.send(f"⚠️ 時刻形式が正しくありません: {e}")
+if __name__ == "__main__":
+    keep_alive()  # Flaskサーバーがあるなら
+    bot.run(os.getenv("DISCORD_TOKEN"))
