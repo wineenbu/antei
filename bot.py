@@ -82,4 +82,8 @@ if __name__ == "__main__":
     from threading import Thread
 
     def run_flask():
-        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+    Thread(target=run_flask).start()
+
+    client.run(TOKEN)
