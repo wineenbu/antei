@@ -39,7 +39,7 @@ def save_reminders(reminders):
 # === リマインダー処理 ===
 @tasks.loop(seconds=30)
 async def check_reminders():
-    now = datetime.datetime.utcnow().timestamp()
+    now = datetime.datetime.now(datetime.UTC).timestamp()
     reminders = load_reminders()
     remaining = []
     for r in reminders:
