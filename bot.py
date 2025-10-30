@@ -3,7 +3,7 @@ import json
 import datetime
 import asyncio
 import discord
-from discord.ext import commands, tasks
+from discord.ext import tasks
 from flask import Flask
 
 # === Flaskサーバー（Render用）===
@@ -19,7 +19,8 @@ if TOKEN is None:
     raise ValueError("DISCORD_TOKEN が設定されていません。Renderの環境変数を確認してください。")
 
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+client = discord.Client(intents=intents)
+tree = discord.app_commands.CommandTree(client)
 
 DATA_FILE = "reminders.json"
 
@@ -44,7 +45,7 @@ async def check_reminders():
     for r in reminders:
         if r["time"] <= now:
             try:
-                user = await bot.fetch_user(r["user_id"])
+                user = await client.fetch_user(r["user_id"])
                 await user.send(f"🔔 リマインド: {r['message']}")
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
@@ -52,38 +53,33 @@ async def check_reminders():
             remaining.append(r)
     save_reminders(remaining)
 
-@bot.event
+@client.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
+    print(f"✅ Logged in as {client.user}")
+    await tree.sync()  # スラッシュコマンドをDiscordに同期
+    print("🌐 Slash commands synced.")
     check_reminders.start()
 
-@bot.command()
-async def remindat(ctx, time_str: str, *, message: str):
-    """
-    例: !remindat 2025-10-28T08:30 リハーサル
-    """
+# === /remindat コマンド ===
+@tree.command(name="remindat", description="指定時刻にリマインドを設定します (例: 2025-10-28T08:30 リハーサル)")
+async def remindat(interaction: discord.Interaction, time_str: str, message: str):
     try:
         remind_time = datetime.datetime.fromisoformat(time_str)
-        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC変換
         reminders = load_reminders()
         reminders.append({
-            "user_id": ctx.author.id,
+            "user_id": interaction.user.id,
             "time": remind_time_utc.timestamp(),
             "message": message
         })
         save_reminders(reminders)
-        await ctx.send(f"⏰ {time_str} にリマインドを設定しました！")
+        await interaction.response.send_message(f"⏰ {time_str} にリマインドを設定しました！", ephemeral=True)
     except Exception as e:
-        await ctx.send(f"⚠️ 時刻形式が正しくありません: {e}")
+        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
 # === メイン処理 ===
 if __name__ == "__main__":
-    # FlaskとBotを同時に動かす
     from threading import Thread
 
     def run_flask():
-        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-    Thread(target=run_flask).start()
-
-    bot.run(TOKEN)
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5
