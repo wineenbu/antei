@@ -42,25 +42,36 @@ async def check_reminders():
     now = datetime.datetime.now(datetime.UTC).timestamp()
     reminders = load_reminders()
     remaining = []
+
     for r in reminders:
         if r["time"] <= now:
             try:
-                user = await client.fetch_user(r["user_id"])
-                await user.send(f"🔔 リマインド: {r['message']}")
+                if r.get("type") == "channel":  # チャンネル宛て
+                    channel = client.get_channel(r["channel_id"])
+                    if channel:
+                        await channel.send(f"🔔 <@{r['user_id']}> リマインド: {r['message']}")
+                    else:
+                        print(f"⚠️ Channel not found for reminder: {r}")
+                else:
+                    # デフォルト（DM宛て）
+                    user = await client.fetch_user(r["user_id"])
+                    await user.send(f"🔔 リマインド: {r['message']}")
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
         else:
             remaining.append(r)
+
     save_reminders(remaining)
 
+# === Bot起動時イベント ===
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
-    await tree.sync()  # スラッシュコマンドをDiscordに同期
+    await tree.sync()  # スラッシュコマンド同期
     print("🌐 Slash commands synced.")
     check_reminders.start()
 
-# === /remindat コマンド ===
+# === /remindat コマンド（DMに送信） ===
 @tree.command(name="remindat", description="指定時刻にリマインドを設定します (例: 2025-10-28T08:30 リハーサル)")
 async def remindat(interaction: discord.Interaction, time_str: str, message: str):
     try:
@@ -70,14 +81,15 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
         reminders.append({
             "user_id": interaction.user.id,
             "time": remind_time_utc.timestamp(),
-            "message": message
+            "message": message,
+            "type": "dm"
         })
         save_reminders(reminders)
-        await interaction.response.send_message(f"⏰ {time_str} にリマインドを設定しました！", ephemeral=True)
+        await interaction.response.send_message(f"⏰ {time_str} にDMでリマインドを設定しました！", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
-# === /remindhere コマンド ===
+# === /remindhere コマンド（チャンネルに送信） ===
 @tree.command(name="remindhere", description="このチャンネルにリマインドを設定します (例: 2025-10-28T08:30 ミーティング)")
 async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
     try:
@@ -86,10 +98,10 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
         reminders = load_reminders()
         reminders.append({
             "user_id": interaction.user.id,
-            "channel_id": interaction.channel.id,  # チャンネルIDも保存
+            "channel_id": interaction.channel.id,
             "time": remind_time_utc.timestamp(),
             "message": message,
-            "type": "channel"  # 種別を追加
+            "type": "channel"
         })
         save_reminders(reminders)
         await interaction.response.send_message(f"📢 {time_str} にこのチャンネルでリマインドを設定しました！", ephemeral=True)
