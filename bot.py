@@ -77,6 +77,25 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
+# === /remindhere コマンド ===
+@tree.command(name="remindhere", description="このチャンネルにリマインドを設定します (例: 2025-10-28T08:30 ミーティング)")
+async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
+    try:
+        remind_time = datetime.datetime.fromisoformat(time_str)
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC変換
+        reminders = load_reminders()
+        reminders.append({
+            "user_id": interaction.user.id,
+            "channel_id": interaction.channel.id,  # チャンネルIDも保存
+            "time": remind_time_utc.timestamp(),
+            "message": message,
+            "type": "channel"  # 種別を追加
+        })
+        save_reminders(reminders)
+        await interaction.response.send_message(f"📢 {time_str} にこのチャンネルでリマインドを設定しました！", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
+
 # === メイン処理 ===
 if __name__ == "__main__":
     from threading import Thread
