@@ -3,7 +3,7 @@ import json
 import datetime
 import asyncio
 import discord
-from Timer import *  # timer.py ファイルのコマンドをインポート
+from timer import *  # timer.py ファイルのコマンドをインポート
 from discord.ext import tasks
 from flask import Flask
 
