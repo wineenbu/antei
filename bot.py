@@ -104,9 +104,14 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
             "type": "channel"
         })
         save_reminders(reminders)
-        await interaction.response.send_message(f"📢 {time_str} にこのチャンネルでリマインドを設定しました！", ephemeral=True)
+
+        # 👇 公開メッセージ（全員に見える）
+        await interaction.response.send_message(
+            f"📅 {interaction.user.mention} さんが {time_str} にリマインドを設定しました！\n"
+            f"💬 内容: {message}"
+        )
     except Exception as e:
-        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}")
+        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
 # === メイン処理 ===
 if __name__ == "__main__":
