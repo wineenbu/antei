@@ -3,9 +3,9 @@ import json
 import datetime
 import asyncio
 import discord
-from timer import *  # timer.py ファイルのコマンドをインポート
 from discord.ext import tasks
 from flask import Flask
+from timer import *  # timer.py ファイルのコマンドをインポート
 
 # === Flaskサーバー（Render用）===
 app = Flask(__name__)
