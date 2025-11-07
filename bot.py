@@ -49,13 +49,14 @@ async def check_reminders():
                 if r.get("type") == "channel":  # チャンネル宛て
                     channel = client.get_channel(r["channel_id"])
                     if channel:
-                        await channel.send(f"🔔 <@{r['user_id']}> リマインド: {r['message']}")
+                        await channel.send(f"🔔 <@{r['user_id']}> リマインド ({format_jst_datetime(datetime.datetime.fromtimestamp(r['time'], datetime.UTC))})\n💬 {r['message']}")
+
                     else:
                         print(f"⚠️ Channel not found for reminder: {r}")
                 else:
                     # デフォルト（DM宛て）
                     user = await client.fetch_user(r["user_id"])
-                    await user.send(f"🔔 リマインド: {r['message']}")
+                    await user.send(f"🔔 <@{r['user_id']}> リマインド ({format_jst_datetime(datetime.datetime.fromtimestamp(r['time'], datetime.UTC))})\n💬 {r['message']}")
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
         else:
@@ -77,6 +78,7 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
     try:
         remind_time = datetime.datetime.fromisoformat(time_str)
         remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC変換
+
         reminders = load_reminders()
         reminders.append({
             "user_id": interaction.user.id,
@@ -85,7 +87,12 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
             "type": "dm"
         })
         save_reminders(reminders)
-        await interaction.response.send_message(f"⏰ {time_str} にDMでリマインドを設定しました！", ephemeral=True)
+
+        formatted_time = format_jst_datetime(remind_time_utc)  # ← JSTで見やすく表示
+        await interaction.response.send_message(
+            f"⏰ {formatted_time} にDMでリマインドを設定しました！",
+            ephemeral=True
+        )
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
@@ -94,7 +101,7 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
 async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
     try:
         remind_time = datetime.datetime.fromisoformat(time_str)
-        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC変換
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)
         reminders = load_reminders()
         reminders.append({
             "user_id": interaction.user.id,
@@ -104,6 +111,20 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
             "type": "channel"
         })
         save_reminders(reminders)
+
+        formatted_time = format_jst_datetime(remind_time_utc)  # ← ここでフォーマット
+
+        embed = discord.Embed(
+            title="📅 リマインダーを設定しました！",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="🕒 日時", value=formatted_time, inline=False)
+        embed.add_field(name="💬 内容", value=message, inline=False)
+        embed.set_footer(text=f"設定者: {interaction.user.display_name}")
+
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
         # === Embedメッセージを作成 ===
         embed = discord.Embed(
