@@ -156,7 +156,6 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
         )
         embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
         embed.add_field(name="💬 内容", value=message, inline=False)
-        embed.set_footer(text="このメッセージは後から確認できます。")
 
         # DM送信
         user = await client.fetch_user(interaction.user.id)
