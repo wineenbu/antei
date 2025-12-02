@@ -84,17 +84,32 @@ async def check_reminders():
                 if r.get("type") == "channel":  # チャンネル宛て
                     channel = client.get_channel(r["channel_id"])
                     if channel:
-                        await channel.send(
-                            f"🔔 <@{r['user_id']}> リマインド ({formatted_time})\n💬 {r['message']}"
+                        embed = discord.Embed(
+                            title="🔔 リマインダー",
+                            color=discord.Color.green()
                         )
+                        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+                        embed.add_field(name="💬 内容", value=r["message"], inline=False)
+                        embed.set_footer(text=f"設定者: <@{r['user_id']}>")
+
+                        await channel.send(f"<@{r['user_id']}>", embed=embed)
                     else:
                         print(f"⚠️ Channel not found for reminder: {r}")
+
                 else:
-                    # デフォルト（DM宛て）
+                    # デフォルト（DM宛て）→ Embed形式に変更
                     user = await client.fetch_user(r["user_id"])
-                    await user.send(
-                        f"🔔 <@{r['user_id']}> リマインド ({formatted_time})\n💬 {r['message']}"
+
+                    embed = discord.Embed(
+                        title="🔔 リマインダー",
+                        description=f"<@{r['user_id']}> さんへのリマインドです！",
+                        color=discord.Color.green()
                     )
+                    embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+                    embed.add_field(name="💬 内容", value=r["message"], inline=False)
+
+                    await user.send(embed=embed)
+
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
         else:
