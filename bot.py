@@ -125,13 +125,18 @@ async def on_ready():
     check_reminders.start()
 
 
-# === /remindat（DMに送る） ===
-@tree.command(name="remindat", description="指定時刻にDMでリマインダーを設定します")
+# === /remindat コマンド（DMに送信） ===
+@tree.command(
+    name="remindat",
+    description="指定時刻にリマインドを設定します (例: 2025-11-08T09:30 リハーサル)"
+)
 async def remindat(interaction: discord.Interaction, time_str: str, message: str):
     try:
+        # ユーザー入力をパース
         remind_time = parse_datetime_input(time_str)
-        remind_time_utc = remind_time - datetime.timedelta(hours=9)
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC
 
+        # JSONに保存
         reminders = load_reminders()
         reminders.append({
             "user_id": interaction.user.id,
@@ -143,8 +148,23 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
 
         formatted_time = format_jst_datetime(remind_time_utc)
 
+        # DM用Embedを作成
+        embed = discord.Embed(
+            title="⏰ リマインダーを設定しました！",
+            color=discord.Color.green(),
+            description=f"{interaction.user.mention} さんのリマインドです。"
+        )
+        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+        embed.add_field(name="💬 内容", value=message, inline=False)
+        embed.set_footer(text="このメッセージは後から確認できます。")
+
+        # DM送信
+        user = await client.fetch_user(interaction.user.id)
+        await user.send(embed=embed)
+
+        # 確認メッセージ（チャンネルには表示しない、ephemeral）
         await interaction.response.send_message(
-            f"⏰ {formatted_time} に以下の内容でDMリマインドを設定しました！\n\n💬 {message}",
+            f"✅ DMにリマインダーを設定しました！",
             ephemeral=True
         )
 
