@@ -36,22 +36,20 @@ def save_reminders(reminders):
     with open(DATA_FILE, "w") as f:
         json.dump(reminders, f)
 
-# === 日時パース関数（柔軟対応）===
+# === 日時パース ===
 def parse_datetime_input(time_str: str) -> datetime.datetime:
-    """ユーザー入力の日時文字列を自動判定してdatetimeに変換"""
     formats = [
-        "%Y-%m-%dT%H:%M",   # 例: 2025-11-08T09:30
-        "%Y-%m-%d %H:%M",   # 例: 2025-11-08 09:30
-        "%Y/%m/%d %H:%M",   # 例: 2025/11/08 09:30
-        "%m/%d %H:%M",      # 例: 11/08 09:30（今年として扱う）
-        "%H:%M",            # 例: 09:30（今日として扱う）
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M",
+        "%m/%d %H:%M",
+        "%H:%M",
     ]
 
     now = datetime.datetime.now()
     for fmt in formats:
         try:
             dt = datetime.datetime.strptime(time_str, fmt)
-            # 年月日補完
             if fmt == "%m/%d %H:%M":
                 dt = dt.replace(year=now.year)
             elif fmt == "%H:%M":
@@ -60,11 +58,10 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
         except ValueError:
             continue
 
-    raise ValueError("対応していない日時形式です。例: 2025-11-08T09:30 または 11/08 09:30")
+    raise ValueError("対応していない日時形式です。例: 2025-11-08T09:30")
 
-# === 日付フォーマット関数（見やすい表示）===
+# === JST表示 ===
 def format_jst_datetime(dt: datetime.datetime) -> str:
-    """UTC日時をJSTに変換して日本語フォーマットで返す"""
     jst = dt + datetime.timedelta(hours=9)
     return jst.strftime("%Y年%m月%d日 %H時%M分")
 
@@ -78,7 +75,6 @@ async def check_reminders():
     for r in reminders:
         if r["time"] <= now:
             try:
-                # --- 必要な処理（これが無いと try が不完全扱いで SyntaxError） ---
                 remind_dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
                 formatted_time = format_jst_datetime(remind_dt)
 
@@ -93,10 +89,9 @@ async def check_reminders():
                         embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
                         embed.add_field(name="💬 内容", value=r["message"], inline=False)
                         embed.set_footer(text=f"設定者: <@{r['user_id']}>")
-
                         await channel.send(embed=embed)
                     else:
-                        print(f"⚠️ Channel not found for reminder: {r}")
+                        print(f"⚠️ Channel not found: {r}")
 
                 # --- DM宛て ---
                 else:
@@ -120,20 +115,22 @@ async def check_reminders():
 
     save_reminders(remaining)
 
+
 # === Bot起動時イベント ===
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
-    await tree.sync()  # スラッシュコマンド同期
+    await tree.sync()
     print("🌐 Slash commands synced.")
     check_reminders.start()
 
-# === /remindat コマンド（DMに送信） ===
-@tree.command(name="remindat", description="指定時刻にリマインドを設定します (例: 2025-11-08T09:30 リハーサル)")
+
+# === /remindat（DMに送る） ===
+@tree.command(name="remindat", description="指定時刻にDMでリマインダーを設定します")
 async def remindat(interaction: discord.Interaction, time_str: str, message: str):
     try:
         remind_time = parse_datetime_input(time_str)
-        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC変換
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)
 
         reminders = load_reminders()
         reminders.append({
@@ -152,10 +149,13 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
         )
 
     except Exception as e:
-        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
+        await interaction.response.send_message(
+            f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
+        )
 
-# === /remindhere コマンド（チャンネルに送信） ===
-@tree.command(name="remindhere", description="このチャンネルにリマインドを設定します (例: 2025-11-08T09:30 ミーティング)")
+
+# === /remindhere（チャンネルに送る） ===
+@tree.command(name="remindhere", description="このチャンネルにリマインダーを設定します")
 async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
     try:
         remind_time = parse_datetime_input(time_str)
@@ -182,8 +182,12 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
         embed.set_footer(text=f"設定者: {interaction.user.display_name}")
 
         await interaction.response.send_message(embed=embed)
+
     except Exception as e:
-        await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
+        await interaction.response.send_message(
+            f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
+        )
+
 
 # === メイン処理 ===
 if __name__ == "__main__":
