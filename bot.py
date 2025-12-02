@@ -81,34 +81,34 @@ async def check_reminders():
                 remind_dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
                 formatted_time = format_jst_datetime(remind_dt)
 
-                if r.get("type") == "channel":  # チャンネル宛て
-                    channel = client.get_channel(r["channel_id"])
-                    if channel:
-                        embed = discord.Embed(
-                            title="🔔 リマインダー",
-                            color=discord.Color.green()
-                        )
-                        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
-                        embed.add_field(name="💬 内容", value=r["message"], inline=False)
-                        embed.set_footer(text=f"設定者: <@{r['user_id']}>")
+if r.get("type") == "channel":  # チャンネル宛て
+    channel = client.get_channel(r["channel_id"])
+    if channel:
+        embed = discord.Embed(
+            title="🔔 リマインダー",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+        embed.add_field(name="💬 内容", value=r["message"], inline=False)
+        embed.set_footer(text=f"設定者: <@{r['user_id']}>")
 
-                        await channel.send(f"<@{r['user_id']}>", embed=embed)
-                    else:
-                        print(f"⚠️ Channel not found for reminder: {r}")
+        await channel.send(embed=embed)
+    else:
+        print(f"⚠️ Channel not found for reminder: {r}")
 
-                else:
-                    # デフォルト（DM宛て）→ Embed形式に変更
-                    user = await client.fetch_user(r["user_id"])
+else:
+    # デフォルト（DM宛て）→ Embedのみ
+    user = await client.fetch_user(r["user_id"])
 
-                    embed = discord.Embed(
-                        title="🔔 リマインダー",
-                        description=f"<@{r['user_id']}> さんへのリマインドです！",
-                        color=discord.Color.green()
-                    )
-                    embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
-                    embed.add_field(name="💬 内容", value=r["message"], inline=False)
+    embed = discord.Embed(
+        title="🔔 リマインダー",
+        description=f"<@{r['user_id']}> さんへのリマインドです！",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+    embed.add_field(name="💬 内容", value=r["message"], inline=False)
 
-                    await user.send(embed=embed)
+    await user.send(embed=embed)
 
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
@@ -142,10 +142,10 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
         save_reminders(reminders)
 
         formatted_time = format_jst_datetime(remind_time_utc)
-        await interaction.response.send_message(
-            f"⏰ {formatted_time} にDMでリマインドを設定しました！",
-            ephemeral=True
-        )
+await interaction.response.send_message(
+    f"⏰ {formatted_time} に以下の内容でDMリマインドを設定しました！\n\n💬 {message}",
+    ephemeral=True
+)
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
