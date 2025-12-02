@@ -145,10 +145,12 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
         save_reminders(reminders)
 
         formatted_time = format_jst_datetime(remind_time_utc)
-await interaction.response.send_message(
-    f"⏰ {formatted_time} に以下の内容でDMリマインドを設定しました！\n\n💬 {message}",
-    ephemeral=True
-)
+
+        await interaction.response.send_message(
+            f"⏰ {formatted_time} に以下の内容でDMリマインドを設定しました！\n\n💬 {message}",
+            ephemeral=True
+        )
+
     except Exception as e:
         await interaction.response.send_message(f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True)
 
