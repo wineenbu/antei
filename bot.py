@@ -207,6 +207,48 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
             f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
         )
 
+# === /reminddelete（リマインダー削除） ===
+@tree.command(name="reminddelete", description="保存されているリマインダーを削除します")
+async def reminddelete(interaction: discord.Interaction, index: int):
+    reminders = load_reminders()
+
+    # ユーザー本人のリマインダーだけ抽出
+    user_reminders = [r for r in reminders if r["user_id"] == interaction.user.id]
+
+    if not user_reminders:
+        await interaction.response.send_message(
+            "❌ あなたのリマインダーは見つかりませんでした。",
+            ephemeral=True
+        )
+        return
+
+    # index は 1 から始まる仕様
+    if index < 1 or index > len(user_reminders):
+        await interaction.response.send_message(
+            f"⚠️ 不正な番号です。1 〜 {len(user_reminders)} の範囲で指定してください。",
+            ephemeral=True
+        )
+        return
+
+    # 削除対象リマインダー
+    target = user_reminders[index - 1]
+
+    # JSON から削除
+    reminders.remove(target)
+    save_reminders(reminders)
+
+    # 時刻表示
+    dt = datetime.datetime.fromtimestamp(target["time"], datetime.UTC)
+    formatted_time = format_jst_datetime(dt)
+
+    embed = discord.Embed(
+        title="🗑️ リマインダーを削除しました",
+        color=discord.Color.red()
+    )
+    embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+    embed.add_field(name="💬 内容", value=target["message"], inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # === メイン処理 ===
 if __name__ == "__main__":
