@@ -70,16 +70,15 @@ def format_jst_datetime(dt: datetime.datetime) -> str:
 async def check_reminders():
     now = datetime.datetime.now(datetime.UTC).timestamp()
     reminders = load_reminders()
-    updated = []
+    remaining = []
 
     for r in reminders:
-        # 時間になった
         if r["time"] <= now:
             try:
                 remind_dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
                 formatted_time = format_jst_datetime(remind_dt)
 
-                # 送信（DM or channel）
+                # --- チャンネル宛て ---
                 if r.get("type") == "channel":
                     channel = client.get_channel(r["channel_id"])
                     if channel:
@@ -91,8 +90,13 @@ async def check_reminders():
                         embed.add_field(name="💬 内容", value=r["message"], inline=False)
                         embed.set_footer(text=f"設定者: <@{r['user_id']}>")
                         await channel.send(embed=embed)
+                    else:
+                        print(f"⚠️ Channel not found: {r}")
+
+                # --- DM宛て ---
                 else:
                     user = await client.fetch_user(r["user_id"])
+
                     embed = discord.Embed(
                         title="🔔 リマインダー",
                         description=f"<@{r['user_id']}> さんへのリマインドです！",
@@ -100,159 +104,109 @@ async def check_reminders():
                     )
                     embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
                     embed.add_field(name="💬 内容", value=r["message"], inline=False)
+
                     await user.send(embed=embed)
 
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
 
-            # 🔁 繰り返し処理
-            if "repeat" in r:
-                next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
-
-                if r["repeat"] == "daily":
-                    next_time += datetime.timedelta(days=1)
-                elif r["repeat"] == "weekly":
-                    next_time += datetime.timedelta(weeks=1)
-                elif r["repeat"] == "monthly":
-                    # 月を +1
-                    y = next_time.year
-                    m = next_time.month + 1
-                    if m > 12:
-                        y += 1
-                        m = 1
-                    next_time = next_time.replace(year=y, month=m)
-
-                r["time"] = next_time.timestamp()
-                updated.append(r)  # 繰り返しなので残す
-
         else:
-            updated.append(r)  # 時間前のものは残す
+            remaining.append(r)
 
-    save_reminders(updated)
+    save_reminders(remaining)
 
-# === Slash Commands ===
 
-# === リマインダー削除用 Select メニュー ===
-class ReminderDeleteSelect(discord.ui.Select):
-    def __init__(self, user, reminders):
-        self.user = user
-        self.reminders = reminders
+# === Bot起動時イベント ===
+@client.event
+async def on_ready():
+    print(f"✅ Logged in as {client.user}")
+    await tree.sync()
+    print("🌐 Slash commands synced.")
+    check_reminders.start()
 
-        options = []
-        for i, r in enumerate(reminders, start=1):
-            dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
-            label = f"#{i} {format_jst_datetime(dt)}"
-            description = r["message"][:50]
-            options.append(discord.SelectOption(label=label, description=description, value=str(i-1)))
 
-        super().__init__(
-            placeholder="削除するリマインダーを選択してください",
-            min_values=1,
-            max_values=len(options),  # 複数選択可能にする
-            options=options
+# === /remindat コマンド（DMに送信） ===
+@tree.command(
+    name="remindat",
+    description="指定時刻にリマインドを設定します (例: 2025-11-08T09:30 リハーサル)"
+)
+async def remindat(interaction: discord.Interaction, time_str: str, message: str):
+    try:
+        # ユーザー入力をパース
+        remind_time = parse_datetime_input(time_str)
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)  # JST→UTC
+
+        # JSONに保存
+        reminders = load_reminders()
+        reminders.append({
+            "user_id": interaction.user.id,
+            "time": remind_time_utc.timestamp(),
+            "message": message,
+            "type": "dm"
+        })
+        save_reminders(reminders)
+
+        formatted_time = format_jst_datetime(remind_time_utc)
+
+        # DM用Embedを作成
+        embed = discord.Embed(
+            title="⏰ リマインダーを設定しました！",
+            color=discord.Color.green(),
+            description=f"{interaction.user.mention} さんのリマインドです。"
+        )
+        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
+        embed.add_field(name="💬 内容", value=message, inline=False)
+
+        # DM送信
+        user = await client.fetch_user(interaction.user.id)
+        await user.send(embed=embed)
+
+        # 確認メッセージ（チャンネルには表示しない、ephemeral）
+        await interaction.response.send_message(
+            f"✅ DMにリマインダーを設定しました！",
+            ephemeral=True
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        selected_indices = [int(i) for i in self.values]
-        selected_reminders = [self.reminders[i] for i in selected_indices]
+    except Exception as e:
+        await interaction.response.send_message(
+            f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
+        )
 
-        # JSON から削除
-        all_data = load_reminders()
-        for reminder in selected_reminders:
-            all_data.remove(reminder)
-        save_reminders(all_data)
+
+# === /remindhere（チャンネルに送る） ===
+@tree.command(name="remindhere", description="このチャンネルにリマインダーを設定します")
+async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
+    try:
+        remind_time = parse_datetime_input(time_str)
+        remind_time_utc = remind_time - datetime.timedelta(hours=9)
+
+        reminders = load_reminders()
+        reminders.append({
+            "user_id": interaction.user.id,
+            "channel_id": interaction.channel.id,
+            "time": remind_time_utc.timestamp(),
+            "message": message,
+            "type": "channel"
+        })
+        save_reminders(reminders)
+
+        formatted_time = format_jst_datetime(remind_time_utc)
 
         embed = discord.Embed(
-            title="🗑️ リマインダー削除完了",
-            color=discord.Color.red()
+            title="📅 リマインダーを設定しました！",
+            color=discord.Color.blue()
         )
+        embed.add_field(name="🕒 日時", value=formatted_time, inline=False)
+        embed.add_field(name="💬 内容", value=message, inline=False)
+        embed.set_footer(text=f"設定者: {interaction.user.display_name}")
 
-        for reminder in selected_reminders:
-            dt = datetime.datetime.fromtimestamp(reminder["time"], datetime.UTC)
-            embed.add_field(name=f"🕒 時刻: {format_jst_datetime(dt)}", value=reminder["message"], inline=False)
+        await interaction.response.send_message(embed=embed)
 
-        await interaction.response.edit_message(
-            content="選択したリマインダーが削除されました。",
-            embed=embed,
-            view=None
-        )
-
-
-class ReminderDeleteView(discord.ui.View):
-    def __init__(self, user, reminders):
-        super().__init__(timeout=60)
-        self.add_item(ReminderDeleteSelect(user, reminders))
-
-# === /reminddelete（複数選択削除） ===
-@tree.command(name="reminddelete", description="選択メニューでリマインダーを削除します")
-async def reminddelete(interaction: discord.Interaction):
-    reminders = [r for r in load_reminders() if r["user_id"] == interaction.user.id]
-
-    if not reminders:
-        await interaction.response.send_message(
-            "📭 現在あなたのリマインダーはありません。",
-            ephemeral=True
-        )
-        return
-
-    view = ReminderDeleteView(interaction.user, reminders)
-
-    embed = discord.Embed(
-        title="🗑️ リマインダー削除",
-        description="下のメニューから削除するリマインダーを選択してください。",
-        color=discord.Color.orange()
-    )
-
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-# === 繰り返しリマインダー設定 ===
-@tree.command(
-    name="remindrepeat",
-    description="繰り返しリマインダーを設定します（daily/weekly/monthly）"
-)
-async def remindrepeat(
-    interaction: discord.Interaction,
-    repeat_type: str,
-    time_str: str,
-    message: str
-):
-    """
-    repeat_type: "daily", "weekly", "monthly"
-    time_str: "09:00" / "2025-12-10T09:00" など
-    """
-
-    repeat_type = repeat_type.lower()
-    if repeat_type not in ["daily", "weekly", "monthly"]:
-        await interaction.response.send_message(
-            "⚠️ repeat_type は daily / weekly / monthly のいずれかです。",
-            ephemeral=True
-        )
-        return
-
-    try:
-        base_time = parse_datetime_input(time_str)
     except Exception as e:
-        await interaction.response.send_message(f"❌ 時刻形式エラー: {e}", ephemeral=True)
-        return
+        await interaction.response.send_message(
+            f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
+        )
 
-    base_time_utc = base_time - datetime.timedelta(hours=9)
-
-    reminders = load_reminders()
-    reminders.append({
-        "user_id": interaction.user.id,
-        "time": base_time_utc.timestamp(),
-        "message": message,
-        "type": "dm",       # repeat は DM 送信とする
-        "repeat": repeat_type
-    })
-    save_reminders(reminders)
-
-    formatted = format_jst_datetime(base_time_utc)
-
-    await interaction.response.send_message(
-        f"🔁 {repeat_type} リマインダーを設定しました！\n⏰ {formatted}\n💬 {message}",
-        ephemeral=True
-    )
 
 # === メイン処理 ===
 if __name__ == "__main__":
