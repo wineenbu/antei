@@ -107,6 +107,11 @@ async def check_reminders():
 
                     await user.send(embed=embed)
 
+if r.get("type") == "weekly":
+    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC) + datetime.timedelta(days=7)
+    r["time"] = next_time.timestamp()
+    remaining.append(r)
+    
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
 
@@ -169,7 +174,7 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
 
     except Exception as e:
         await interaction.response.send_message(
-            f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
+            f"⚠️ 時刻形式が正しくありません: z{e}", ephemeral=True
         )
 
 
@@ -207,6 +212,83 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
             f"⚠️ 時刻形式が正しくありません: {e}", ephemeral=True
         )
 
+# === 追加: /remindeveryweek ===
+@tree.command(
+    name="remindeveryweek",
+    description="毎週リマインドを設定します (例: fri 18:00 ジム)"
+)
+async def remindeveryweek(interaction: discord.Interaction, weekday: str, time_str: str, message: str):
+    try:
+        weekdays = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
+        if weekday.lower() not in weekdays:
+            await interaction.response.send_message("⚠️ 曜日は mon,tue,wed,thu,fri,sat,sun から選んでください", ephemeral=True)
+            return
+
+        # 時刻解析
+        base_time = parse_datetime_input(time_str)
+        now = datetime.datetime.now()
+        target = now.replace(hour=base_time.hour, minute=base_time.minute, second=0, microsecond=0)
+
+        # 次の該当曜日に調整
+        while target.weekday() != weekdays[weekday.lower()] or target <= now:
+            target += datetime.timedelta(days=1)
+
+        remind_time_utc = target - datetime.timedelta(hours=9)
+
+        reminders = load_reminders()
+        reminders.append({
+            "user_id": interaction.user.id,
+            "time": remind_time_utc.timestamp(),
+            "message": message,
+            "type": "weekly",
+            "weekday": weekday.lower()
+        })
+        save_reminders(reminders)
+
+        formatted_time = format_jst_datetime(remind_time_utc)
+        await interaction.response.send_message(
+            f"📅 毎週リマインドを設定しました！ ({weekday} {formatted_time})",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ エラー: {e}", ephemeral=True)
+
+
+# === 追加: リスト表示 ===
+@tree.command(name="remindlist", description="自分のリマインド一覧を表示します")
+async def remindlist(interaction: discord.Interaction):
+    reminders = load_reminders()
+    user_reminders = [r for r in reminders if r["user_id"] == interaction.user.id]
+
+    if not user_reminders:
+        await interaction.response.send_message("🔍 リマインドはありません。", ephemeral=True)
+        return
+
+    text = ""
+    for i, r in enumerate(user_reminders):
+        dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
+        text += f"ID: `{i}` | {format_jst_datetime(dt)} | {r['message']} | type: {r['type']}\n"
+
+    await interaction.response.send_message(text, ephemeral=True)
+
+
+# === 追加: リマインド削除 ===
+@tree.command(name="reminddelete", description="リマインドを削除します (IDは /remindlist で確認)")
+async def reminddelete(interaction: discord.Interaction, reminder_id: int):
+    reminders = load_reminders()
+    user_reminders = [r for r in reminders if r["user_id"] == interaction.user.id]
+
+    try:
+        target = user_reminders[reminder_id]
+        reminders.remove(target)
+        save_reminders(reminders)
+        await interaction.response.send_message(
+            f"🗑 リマインドを削除しました: `{target['message']}`",
+            ephemeral=True
+        )
+    except:
+        await interaction.response.send_message("⚠️ IDが無効です。`/remindlist` で確認してください。", ephemeral=True)
 
 # === メイン処理 ===
 if __name__ == "__main__":
