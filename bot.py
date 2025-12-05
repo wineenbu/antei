@@ -96,7 +96,6 @@ async def check_reminders():
                 # --- DM宛て ---
                 else:
                     user = await client.fetch_user(r["user_id"])
-
                     embed = discord.Embed(
                         title="🔔 リマインダー",
                         description=f"<@{r['user_id']}> さんへのリマインドです！",
@@ -104,22 +103,22 @@ async def check_reminders():
                     )
                     embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
                     embed.add_field(name="💬 内容", value=r["message"], inline=False)
-
                     await user.send(embed=embed)
 
-if r.get("type") == "weekly":
-    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC) + datetime.timedelta(days=7)
-    r["time"] = next_time.timestamp()
-    remaining.append(r)
-    
+                # --- weeklyリマインダーの再設定 ---
+                if r.get("repeat") == "weekly":
+                    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC) + datetime.timedelta(days=7)
+                    r["time"] = next_time.timestamp()
+                    remaining.append(r)
+
             except Exception as e:
                 print(f"❌ Failed to send reminder: {e}")
 
         else:
+            # まだ時間前のものは残す
             remaining.append(r)
 
     save_reminders(remaining)
-
 
 # === Bot起動時イベント ===
 @client.event
