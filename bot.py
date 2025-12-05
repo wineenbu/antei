@@ -106,19 +106,17 @@ async def check_reminders():
                     await user.send(embed=embed)
 
                 # --- weeklyリマインダーの再設定 ---
-if r.get("repeat") == "weekly":
-    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
+                if r.get("repeat") == "weekly":
+                    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC) + datetime.timedelta(days=7)
+                    r["time"] = next_time.timestamp()
+                    remaining.append(r)
 
-    # 次の希望曜日まで進める
-    target_weekday = r.get("weekday")   # 0=Mon ... 6=Sun
-    days_ahead = (target_weekday - next_time.weekday() + 7) % 7
-    if days_ahead == 0:
-        days_ahead = 7   # 同じ曜日の次週へ
+            except Exception as e:
+                print(f"❌ Failed to send reminder: {e}")
 
-    next_time = next_time + datetime.timedelta(days=days_ahead)
-    r["time"] = next_time.timestamp()
-    remaining.append(r)
-
+        else:
+            # まだ時間前のものは残す
+            remaining.append(r)
 
     save_reminders(remaining)
 
