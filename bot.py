@@ -159,34 +159,85 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
     await interaction.response.send_message("📌 このチャンネルにリマインドを設定しました。", ephemeral=True)
 
 # === /remindeveryweek ===
-@tree.command(name="remindeveryweek", description="毎週リマインドします (mon〜sun)")
-async def remindeveryweek(interaction: discord.Interaction, weekday: str, time_str: str, message: str):
-    weekdays = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
-    if weekday.lower() not in weekdays:
-        await interaction.response.send_message("⚠️ mon〜sunで指定してください", ephemeral=True)
+@tree.command(name="remindeveryweek", description="毎週リマインドします（日本語の曜日指定OK）")
+async def remindeveryweek(
+    interaction: discord.Interaction,
+    weekday: str,
+    time_str: str,
+    message: str,
+    here: bool = False  # ← Trueならチャンネルに投下
+):
+    # 日本語 → 英語曜日マップ
+    jp_weekdays = {
+        "月": "mon", "月曜": "mon", "月曜日": "mon",
+        "火": "tue", "火曜": "tue", "火曜日": "tue",
+        "水": "wed", "水曜": "wed", "水曜日": "wed",
+        "木": "thu", "木曜": "thu", "木曜日": "thu",
+        "金": "fri", "金曜": "fri", "金曜日": "fri",
+        "土": "sat", "土曜": "sat", "土曜日": "sat",
+        "日": "sun", "日曜": "sun", "日曜日": "sun",
+    }
+
+    # 英語3文字もOKにする
+    en_weekdays = {"mon","tue","wed","thu","fri","sat","sun"}
+
+    # 正規化
+    w = weekday.lower()
+
+    if w in jp_weekdays:
+        w = jp_weekdays[w]
+    elif w not in en_weekdays:
+        await interaction.response.send_message(
+            "⚠️ 曜日は「月 / 月曜 / 月曜日 / mon」などで指定してください。",
+            ephemeral=True
+        )
         return
 
+    weekday_num = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}[w]
+
+    # 時刻パース
     base_time = parse_datetime_input(time_str)
     now = datetime.datetime.now()
     target = now.replace(hour=base_time.hour, minute=base_time.minute, second=0, microsecond=0)
 
-    while target.weekday() != weekdays[weekday.lower()] or target <= now:
+    # 次の対象曜日を探す
+    while target.weekday() != weekday_num or target <= now:
         target += datetime.timedelta(days=1)
 
     remind_time_utc = target - datetime.timedelta(hours=9)
 
+    # リマインダー保存
     reminders = load_reminders()
-    reminders.append({
+    data = {
         "uid": str(uuid.uuid4()),
         "user_id": interaction.user.id,
         "time": remind_time_utc.timestamp(),
         "message": message,
-        "type": "dm",
         "repeat": "weekly"
-    })
+    }
+
+    if here:
+        data["type"] = "channel"
+        data["channel_id"] = interaction.channel.id
+    else:
+        data["type"] = "dm"
+
+    reminders.append(data)
     save_reminders(reminders)
 
-    await interaction.response.send_message(f"⏳ 毎週 {weekday} に設定しました。", ephemeral=True)
+    # 表示用（JSTで整形）
+    formatted = format_jst_datetime(target)
+
+    if here:
+        await interaction.response.send_message(
+            f"📌 **毎週 {weekday} の {formatted} にこのチャンネルへリマインドを設定しました！**",
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            f"⏳ **毎週 {weekday} の {formatted} にDMでリマインドします！**",
+            ephemeral=True
+        )
 
 # === /remindlist ===
 @tree.command(name="remindlist", description="リマインド一覧を表示")
