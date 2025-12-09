@@ -229,23 +229,23 @@ async def remindeveryweek(
     reminders.append(data)
     save_reminders(reminders)
 
-    # JST 表示（設定確認用）
-    formatted = format_jst_datetime(target)
+# JST 表示（設定確認用）
+formatted = target.strftime("%Y年%m月%d日 %H時%M分")
 
-    # 🔔 embed 形式で返信
-    embed = discord.Embed(
-        title="⏳ 毎週リマインダーを設定しました！",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="📅 曜日", value=weekday, inline=False)
-    embed.add_field(name="🕒 時刻（JST）", value=formatted, inline=False)
-    embed.add_field(name="💬 内容", value=message, inline=False)
-    embed.add_field(
-        name="📍 場所",
-        value=("このチャンネルに投稿" if here else "DMで通知"),
-        inline=False
-    )
-    embed.set_footer(text=f"設定者: {interaction.user.name}")
+# embed 形式で返信
+embed = discord.Embed(
+    title="⏳ 毎週リマインダーを設定しました！",
+    color=discord.Color.green()
+)
+embed.add_field(name="📅 曜日", value=weekday, inline=False)
+embed.add_field(name="🕒 時刻（JST）", value=formatted, inline=False)
+embed.add_field(name="💬 内容", value=message, inline=False)
+embed.add_field(
+    name="📍 場所",
+    value=("このチャンネルに投稿" if here else "DMで通知"),
+    inline=False
+)
+embed.set_footer(text=f"設定者: {interaction.user.name}")
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
