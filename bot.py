@@ -206,9 +206,14 @@ async def remindeveryweek(
         microsecond=0
     )
 
-    # 次の該当曜日まで進める
-    while target.weekday() != weekday_num or target <= now:
+# 次の該当曜日または今日の指定時刻が未来なら今日にする
+if target.weekday() != weekday_num:
+    # 曜日が違う場合 次の該当曜日へ
+    while target.weekday() != weekday_num:
         target += datetime.timedelta(days=1)
+elif target <= now:
+    # 曜日は合っていても時間が過去なら来週
+    target += datetime.timedelta(days=7)
 
     # 保存用に UTC に変換
     remind_time_utc = target - datetime.timedelta(hours=9)
