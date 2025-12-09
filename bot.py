@@ -25,6 +25,7 @@ tree = discord.app_commands.CommandTree(client)
 
 DATA_FILE = "reminders.json"
 
+
 # === JSON読み書き ===
 def load_reminders():
     try:
@@ -37,7 +38,8 @@ def save_reminders(reminders):
     with open(DATA_FILE, "w") as f:
         json.dump(reminders, f, indent=2)
 
-# === 日時形式解析 ===
+
+# === 日時パース ===
 def parse_datetime_input(time_str: str) -> datetime.datetime:
     formats = [
         "%Y-%m-%dT%H:%M",
@@ -61,25 +63,27 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
 
     raise ValueError("対応していない日時形式です。例: 2025-11-08T09:30")
 
-# === JSTフォーマット ===
+
+# === JST表示形式 ===
 def format_jst_datetime(dt: datetime.datetime) -> str:
     jst = dt + datetime.timedelta(hours=9)
     return jst.strftime("%Y年%m月%d日 %H時%M分")
 
-# === リマインダー処理 ===
+
+# === リマインダー監視 ===
 @tasks.loop(seconds=30)
 async def check_reminders():
-    now = datetime.datetime.now(datetime.UTC).timestamp()
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
     reminders = load_reminders()
     remaining = []
 
     for r in reminders:
-        if r.get("deleted", False):  # 削除済みは無視
+        if r.get("deleted", False):
             continue
 
         if r["time"] <= now:
             try:
-                remind_dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
+                remind_dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
                 formatted_time = format_jst_datetime(remind_dt)
 
                 if r.get("type") == "channel":
@@ -90,10 +94,8 @@ async def check_reminders():
                         embed.add_field(name="💬 内容", value=r["message"], inline=False)
                         embed.set_footer(text=f"設定者: <@{r['user_id']}>")
                         await channel.send(embed=embed)
-                    else:
-                        print(f"⚠️ Channel not found: {r}")
 
-                else:  # DM宛て
+                else:
                     user = await client.fetch_user(r["user_id"])
                     embed = discord.Embed(title="🔔 リマインダー", color=discord.Color.green())
                     embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
@@ -102,7 +104,7 @@ async def check_reminders():
 
                 # weeklyの場合は再設定
                 if r.get("repeat") == "weekly":
-                    next_time = datetime.datetime.fromtimestamp(r["time"], datetime.UTC) + datetime.timedelta(days=7)
+                    next_time = remind_dt + datetime.timedelta(days=7)
                     r["time"] = next_time.timestamp()
                     remaining.append(r)
 
@@ -113,7 +115,7 @@ async def check_reminders():
 
     save_reminders(remaining)
 
-# === 起動時 ===
+
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
@@ -121,7 +123,8 @@ async def on_ready():
     print("Slash commands synced.")
     check_reminders.start()
 
-# === /remindat (DM) ===
+
+# === /remindat ===
 @tree.command(name="remindat", description="指定時刻にDMでリマインドを設定します")
 async def remindat(interaction: discord.Interaction, time_str: str, message: str):
     remind_time = parse_datetime_input(time_str)
@@ -138,6 +141,7 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
     save_reminders(reminders)
 
     await interaction.response.send_message("⏰ リマインダーを設定しました！ /remindlist で確認できます。", ephemeral=True)
+
 
 # === /remindhere ===
 @tree.command(name="remindhere", description="このチャンネルにリマインドします")
@@ -158,6 +162,7 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
 
     await interaction.response.send_message("📌 このチャンネルにリマインドを設定しました。", ephemeral=True)
 
+
 # === /remindeveryweek ===
 @tree.command(name="remindeveryweek", description="毎週リマインドします（日本語の曜日指定OK）")
 async def remindeveryweek(
@@ -165,9 +170,8 @@ async def remindeveryweek(
     weekday: str,
     time_str: str,
     message: str,
-    here: bool = False  # ← Trueならチャンネルに投下
+    here: bool = False
 ):
-    # 日本語 → 英語曜日マップ
     jp_weekdays = {
         "月": "mon", "月曜": "mon", "月曜日": "mon",
         "火": "tue", "火曜": "tue", "火曜日": "tue",
@@ -178,27 +182,23 @@ async def remindeveryweek(
         "日": "sun", "日曜": "sun", "日曜日": "sun",
     }
 
-    # 英語3文字もOK
     en_weekdays = {"mon","tue","wed","thu","fri","sat","sun"}
 
-    # 正規化
     w = weekday.lower()
     if w in jp_weekdays:
         w = jp_weekdays[w]
     elif w not in en_weekdays:
         await interaction.response.send_message(
-            "⚠️ 曜日は「月 / 月曜 / 月曜日 / mon」などで指定してください。",
+            "⚠️ 曜日は「月 / 火 / 月曜 / mon」などで指定してください。",
             ephemeral=True
         )
         return
 
     weekday_num = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}[w]
 
-    # 時刻パース（これはローカル時刻 = JST として扱う）
     base_time = parse_datetime_input(time_str)
-
-    # 今日の同じ時刻の基準を作る（JST）
     now = datetime.datetime.now()
+
     target = now.replace(
         hour=base_time.hour,
         minute=base_time.minute,
@@ -206,14 +206,15 @@ async def remindeveryweek(
         microsecond=0
     )
 
-    # 次の該当曜日まで進める
-    while target.weekday() != weekday_num or target <= now:
-        target += datetime.timedelta(days=1)
+    # 今日の指定時刻が未来なら今日、過ぎていたら来週
+    if target.weekday() != weekday_num:
+        while target.weekday() != weekday_num:
+            target += datetime.timedelta(days=1)
+    elif target <= now:
+        target += datetime.timedelta(days=7)
 
-    # 保存用に UTC に変換
     remind_time_utc = target - datetime.timedelta(hours=9)
 
-    # リマインダー保存
     reminders = load_reminders()
     data = {
         "uid": str(uuid.uuid4()),
@@ -229,10 +230,8 @@ async def remindeveryweek(
     reminders.append(data)
     save_reminders(reminders)
 
-    # JST 表示（設定確認用）
     formatted = format_jst_datetime(target)
 
-    # 🔔 embed 形式で返信
     embed = discord.Embed(
         title="⏳ 毎週リマインダーを設定しました！",
         color=discord.Color.green()
@@ -244,10 +243,11 @@ async def remindeveryweek(
         name="📍 場所",
         value=("このチャンネルに投稿" if here else "DMで通知"),
         inline=False
-        
-embed.set_footer(text=f"設定者: {interaction.user.name}")
+    )
+    embed.set_footer(text=f"設定者: {interaction.user.name}")
 
-await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 # === /remindlist ===
 @tree.command(name="remindlist", description="リマインド一覧を表示")
@@ -261,10 +261,11 @@ async def remindlist(interaction: discord.Interaction):
 
     text = ""
     for r in mine:
-        dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
+        dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
         text += f"UID: `{r['uid']}` | {format_jst_datetime(dt)} | {r['message']} | {r.get('repeat','once')}\n"
 
     await interaction.response.send_message(text, ephemeral=True)
+
 
 # === /reminddelete ===
 @tree.command(name="reminddelete", description="リマインドを削除する")
@@ -282,6 +283,7 @@ async def reminddelete(interaction: discord.Interaction, uid: str):
         await interaction.response.send_message(f"🗑 削除しました: `{uid}`", ephemeral=True)
     else:
         await interaction.response.send_message("⚠️ UIDが見つかりません。/remindlist を確認してください", ephemeral=True)
+
 
 # === 起動 ===
 if __name__ == "__main__":
