@@ -250,9 +250,9 @@ elif target <= now:
         value=("このチャンネルに投稿" if here else "DMで通知"),
         inline=False
     )
-    embed.set_footer(text=f"設定者: {interaction.user.name}")
+embed.set_footer(text=f"設定者: {interaction.user.name}")
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # === /remindlist ===
 @tree.command(name="remindlist", description="リマインド一覧を表示")
