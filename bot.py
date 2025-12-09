@@ -250,25 +250,6 @@ embed.add_field(name="💬 メッセージ", value=message, inline=False)
 embed.add_field(name="🆔 UID", value=uid, inline=False)
 await interaction.response.send_message(embed=embed, ephemeral=True)
 
-
-@tree.command(name="remindhere", description="このチャンネルにリマインドします")
-async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
-try:
-remind_time = parse_datetime_input(time_str)
-except ValueError as e:
-await interaction.response.send_message(f"❌ 日時の解析に失敗しました: {e}", ephemeral=True)
-return
-
-
-remind_time_utc = remind_time - datetime.timedelta(hours=9)
-
-
-reminders = load_reminders()
-reminders.append({
-"uid": str(uuid.uuid4()),
-"user_id": interaction.user.id,
-
-
 # === /remindeveryweek ===
 @tree.command(name="remindeveryweek", description="毎週リマインドします（日本語の曜日指定OK）")
 async def remindeveryweek(
