@@ -178,12 +178,11 @@ async def remindeveryweek(
         "日": "sun", "日曜": "sun", "日曜日": "sun",
     }
 
-    # 英語3文字もOKにする
+    # 英語3文字もOK
     en_weekdays = {"mon","tue","wed","thu","fri","sat","sun"}
 
     # 正規化
     w = weekday.lower()
-
     if w in jp_weekdays:
         w = jp_weekdays[w]
     elif w not in en_weekdays:
@@ -195,15 +194,23 @@ async def remindeveryweek(
 
     weekday_num = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}[w]
 
-    # 時刻パース
+    # 時刻パース（これはローカル時刻 = JST として扱う）
     base_time = parse_datetime_input(time_str)
-    now = datetime.datetime.now()
-    target = now.replace(hour=base_time.hour, minute=base_time.minute, second=0, microsecond=0)
 
-    # 次の対象曜日を探す
+    # 今日の同じ時刻の基準を作る（JST）
+    now = datetime.datetime.now()
+    target = now.replace(
+        hour=base_time.hour,
+        minute=base_time.minute,
+        second=0,
+        microsecond=0
+    )
+
+    # 次の該当曜日まで進める
     while target.weekday() != weekday_num or target <= now:
         target += datetime.timedelta(days=1)
 
+    # 保存用に UTC に変換
     remind_time_utc = target - datetime.timedelta(hours=9)
 
     # リマインダー保存
@@ -213,31 +220,34 @@ async def remindeveryweek(
         "user_id": interaction.user.id,
         "time": remind_time_utc.timestamp(),
         "message": message,
-        "repeat": "weekly"
+        "repeat": "weekly",
+        "type": "channel" if here else "dm"
     }
-
     if here:
-        data["type"] = "channel"
         data["channel_id"] = interaction.channel.id
-    else:
-        data["type"] = "dm"
 
     reminders.append(data)
     save_reminders(reminders)
 
-    # 表示用（JSTで整形）
+    # JST 表示（設定確認用）
     formatted = format_jst_datetime(target)
 
-    if here:
-        await interaction.response.send_message(
-            f"📌 **毎週 {weekday} の {formatted} にこのチャンネルへリマインドを設定しました！**",
-            ephemeral=True
-        )
-    else:
-        await interaction.response.send_message(
-            f"⏳ **毎週 {weekday} の {formatted} にDMでリマインドします！**",
-            ephemeral=True
-        )
+    # 🔔 embed 形式で返信
+    embed = discord.Embed(
+        title="⏳ 毎週リマインダーを設定しました！",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="📅 曜日", value=weekday, inline=False)
+    embed.add_field(name="🕒 時刻（JST）", value=formatted, inline=False)
+    embed.add_field(name="💬 内容", value=message, inline=False)
+    embed.add_field(
+        name="📍 場所",
+        value=("このチャンネルに投稿" if here else "DMで通知"),
+        inline=False
+    )
+    embed.set_footer(text=f"設定者: {interaction.user.name}")
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # === /remindlist ===
 @tree.command(name="remindlist", description="リマインド一覧を表示")
