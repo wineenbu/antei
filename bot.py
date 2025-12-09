@@ -251,8 +251,7 @@ async def remindeveryweek(
         "土": "sat", "土曜": "sat", "土曜日": "sat",
         "日": "sun", "日曜": "sun", "日曜日": "sun",
     }
-
-    en_weekdays = {"mon","tue","wed","thu","fri","sat","sun"}
+    en_weekdays = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
     w = weekday.lower()
     if w in jp_weekdays:
@@ -266,28 +265,23 @@ async def remindeveryweek(
 
     weekday_num = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}[w]
 
-    try:
-        base_time = parse_datetime_input(time_str)
-    except ValueError as e:
-        await interaction.response.send_message(f"❌ 日時の解析に失敗しました: {e}", ephemeral=True)
-        return
+    base_time = parse_datetime_input(time_str)
+    now = datetime.datetime.now()
 
-    now_jst = datetime.datetime.now()
-    target = now_jst.replace(
+    target = now.replace(
         hour=base_time.hour,
         minute=base_time.minute,
         second=0,
         microsecond=0
     )
 
-    if target.weekday() != weekday_num:
-        days_to_add = (weekday_num - target.weekday()) % 7
-        if days_to_add == 0:
-            days_to_add = 7
-        target = target + datetime.timedelta(days=days_to_add)
-    else:
-        if target <= now_jst:
-            target = target + datetime.timedelta(days=7)
+    days_ahead = weekday_num - now.weekday()
+    if days_ahead < 0:
+        days_ahead += 7
+    target += datetime.timedelta(days=days_ahead)
+
+    if target <= now:
+        target += datetime.timedelta(days=7)
 
     remind_time_utc = target - datetime.timedelta(hours=9)
 
@@ -306,7 +300,7 @@ async def remindeveryweek(
     reminders.append(data)
     save_reminders(reminders)
 
-    formatted = format_jst_datetime(remind_time_utc if isinstance(remind_time_utc, datetime.datetime) else datetime.datetime.fromtimestamp(remind_time_utc, datetime.timezone.utc))
+    formatted = format_jst_datetime(target)
 
     embed = discord.Embed(
         title="⏳ 毎週リマインダーを設定しました！",
@@ -315,11 +309,7 @@ async def remindeveryweek(
     embed.add_field(name="📅 曜日", value=weekday, inline=False)
     embed.add_field(name="🕒 時刻（JST）", value=formatted, inline=False)
     embed.add_field(name="💬 内容", value=message, inline=False)
-    embed.add_field(
-        name="📍 場所",
-        value=("このチャンネルに投稿" if here else "DMで通知"),
-        inline=False
-    )
+    embed.add_field(name="📍 場所", value=("このチャンネル" if here else "DM"), inline=False)
     embed.set_footer(text=f"設定者: {interaction.user.name}")
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
