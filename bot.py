@@ -187,68 +187,71 @@ async def on_ready():
 # === /remindat ===
 @tree.command(name="remindat", description="指定時刻にDMでリマインドを設定します")
 async def remindat(interaction: discord.Interaction, time_str: str, message: str):
-try:
-remind_time = parse_datetime_input(time_str)
-except ValueError as e:
-embed = discord.Embed(title="❌ 日時エラー", description=f"{e}", color=discord.Color.red())
-await interaction.response.send_message(embed=embed, ephemeral=True)
-return
+    try:
+        remind_time = parse_datetime_input(time_str)
+    except ValueError as e:
+        embed = discord.Embed(
+            title="❌ 日時エラー",
+            description=f"{e}",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
 
+    remind_time_utc = remind_time - datetime.timedelta(hours=9)
 
-remind_time_utc = remind_time - datetime.timedelta(hours=9)
+    reminders = load_reminders()
+    uid = str(uuid.uuid4())
+    reminders.append({
+        "uid": uid,
+        "user_id": interaction.user.id,
+        "time": remind_time_utc.timestamp(),
+        "message": message,
+        "type": "dm"
+    })
+    save_reminders(reminders)
 
-
-reminders = load_reminders()
-uid = str(uuid.uuid4())
-reminders.append({
-"uid": uid,
-"user_id": interaction.user.id,
-"time": remind_time_utc.timestamp(),
-"message": message,
-"type": "dm"
-})
-save_reminders(reminders)
-
-
-embed = discord.Embed(title="⏰ リマインダー設定完了", color=discord.Color.green())
-embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
-embed.add_field(name="💬 メッセージ", value=message, inline=False)
-embed.add_field(name="🆔 UID", value=uid, inline=False)
-await interaction.response.send_message(embed=embed, ephemeral=True)
+    embed = discord.Embed(title="⏰ リマインダー設定完了", color=discord.Color.green())
+    embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
+    embed.add_field(name="💬 メッセージ", value=message, inline=False)
+    embed.add_field(name="🆔 UID", value=uid, inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # === /remindhere ===
 @tree.command(name="remindhere", description="このチャンネルにリマインドを設定します")
 async def remindhere(interaction: discord.Interaction, time_str: str, message: str):
-try:
-remind_time = parse_datetime_input(time_str)
-except ValueError as e:
-embed = discord.Embed(title="❌ 日時エラー", description=f"{e}", color=discord.Color.red())
-await interaction.response.send_message(embed=embed, ephemeral=True)
-return
+    try:
+        remind_time = parse_datetime_input(time_str)
+    except ValueError as e:
+        embed = discord.Embed(
+            title="❌ 日時エラー",
+            description=f"{e}",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
 
+    remind_time_utc = remind_time - datetime.timedelta(hours=9)
 
-remind_time_utc = remind_time - datetime.timedelta(hours=9)
+    reminders = load_reminders()
+    uid = str(uuid.uuid4())
+    reminders.append({
+        "uid": uid,
+        "user_id": interaction.user.id,
+        "channel_id": interaction.channel.id,
+        "time": remind_time_utc.timestamp(),
+        "message": message,
+        "type": "channel"
+    })
+    save_reminders(reminders)
 
+    embed = discord.Embed(title="📌 チャンネルリマインダー設定完了", color=discord.Color.green())
+    embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
+    embed.add_field(name="💬 メッセージ", value=message, inline=False)
+    embed.add_field(name="🆔 UID", value=uid, inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-reminders = load_reminders()
-uid = str(uuid.uuid4())
-reminders.append({
-"uid": uid,
-"user_id": interaction.user.id,
-"channel_id": interaction.channel.id,
-"time": remind_time_utc.timestamp(),
-"message": message,
-"type": "channel"
-})
-save_reminders(reminders)
-
-
-embed = discord.Embed(title="📌 チャンネルリマインダー設定完了", color=discord.Color.green())
-embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
-embed.add_field(name="💬 メッセージ", value=message, inline=False)
-embed.add_field(name="🆔 UID", value=uid, inline=False)
-await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # === /remindeveryweek ===
 @tree.command(name="remindeveryweek", description="毎週リマインドします（日本語の曜日指定OK）")
