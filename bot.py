@@ -367,12 +367,10 @@ async def remind_list(interaction: discord.Interaction):
             title="⏰ リマインダー",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="🆔 ID", value=r["uid"], inline=False)
         embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
         embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
         embed.add_field(name="💬 内容", value=r["message"], inline=False)
 
-        # 🔥 修正済み：正しい削除ボタン View
         view = ReminderDeleteView(r["uid"], interaction.user.id)
 
         await interaction.followup.send(
@@ -380,24 +378,6 @@ async def remind_list(interaction: discord.Interaction):
             view=view,
             ephemeral=True
         )
-
-
-# === /reminddelete (コマンド版) ===
-@tree.command(name="reminddelete", description="リマインドを削除する (UID指定)")
-async def reminddelete(interaction: discord.Interaction, uid: str):
-    reminders = load_reminders()
-    found = False
-    for r in reminders:
-        if r.get("uid") == uid and r["user_id"] == interaction.user.id:
-            r["deleted"] = True
-            found = True
-
-    save_reminders(reminders)
-
-    if found:
-        await interaction.response.send_message(f"🗑 削除しました: `{uid}`", ephemeral=True)
-    else:
-        await interaction.response.send_message("⚠️ UIDが見つかりません。/remindlist を確認してください", ephemeral=True)
 
 
 # === 起動（Flaskを別スレッドで立てる） ===
