@@ -214,7 +214,6 @@ async def remindat(interaction: discord.Interaction, time_str: str, message: str
     embed = discord.Embed(title="⏰ リマインダー設定完了", color=discord.Color.green())
     embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
     embed.add_field(name="💬 メッセージ", value=message, inline=False)
-    embed.add_field(name="🆔 UID", value=uid, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -249,91 +248,37 @@ async def remindhere(interaction: discord.Interaction, time_str: str, message: s
     embed = discord.Embed(title="📌 チャンネルリマインダー設定完了", color=discord.Color.green())
     embed.add_field(name="📅 リマインド日時", value=f"{remind_time.strftime('%Y/%m/%d %H:%M')} (JST)", inline=False)
     embed.add_field(name="💬 メッセージ", value=message, inline=False)
-    embed.add_field(name="🆔 UID", value=uid, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # === /remindeveryweek ===
-@tree.command(name="remindeveryweek", description="毎週リマインドします（日本語の曜日指定OK）")
+@tree.command(name="remindeveryweek", description="毎週決まった曜日と時刻にリマインドします")
+@app_commands.describe(
+    weekday="曜日を選択してください",
+    time_str="時刻（例: 14:30）",
+    message="リマインド内容",
+    here="このチャンネルに送る場合は true"
+)
+@app_commands.choices(
+    weekday=[
+        app_commands.Choice(name="月曜日", value="mon"),
+        app_commands.Choice(name="火曜日", value="tue"),
+        app_commands.Choice(name="水曜日", value="wed"),
+        app_commands.Choice(name="木曜日", value="thu"),
+        app_commands.Choice(name="金曜日", value="fri"),
+        app_commands.Choice(name="土曜日", value="sat"),
+        app_commands.Choice(name="日曜日", value="sun"),
+    ]
+)
 async def remindeveryweek(
     interaction: discord.Interaction,
-    weekday: str,
+    weekday: app_commands.Choice[str],
     time_str: str,
     message: str,
     here: bool = False
 ):
-    jp_weekdays = {
-        "月": "mon", "月曜": "mon", "月曜日": "mon",
-        "火": "tue", "火曜": "tue", "火曜日": "tue",
-        "水": "wed", "水曜": "wed", "水曜日": "wed",
-        "木": "thu", "木曜": "thu", "木曜日": "thu",
-        "金": "fri", "金曜": "fri", "金曜日": "fri",
-        "土": "sat", "土曜": "sat", "土曜日": "sat",
-        "日": "sun", "日曜": "sun", "日曜日": "sun",
-    }
-    en_weekdays = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
-
-    w = weekday.lower()
-    if w in jp_weekdays:
-        w = jp_weekdays[w]
-    elif w not in en_weekdays:
-        await interaction.response.send_message(
-            "⚠️ 曜日は「月 / 月曜 / 月曜日 / mon」などで指定してください。",
-            ephemeral=True
-        )
-        return
-
-    weekday_num = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}[w]
-
-    base_time = parse_datetime_input(time_str)
-    now = datetime.datetime.now()
-
-    target = now.replace(
-        hour=base_time.hour,
-        minute=base_time.minute,
-        second=0,
-        microsecond=0
-    )
-
-    days_ahead = weekday_num - now.weekday()
-    if days_ahead < 0:
-        days_ahead += 7
-    target += datetime.timedelta(days=days_ahead)
-
-    if target <= now:
-        target += datetime.timedelta(days=7)
-
-    remind_time_utc = target - datetime.timedelta(hours=9)
-
-    reminders = load_reminders()
-    data = {
-        "uid": str(uuid.uuid4()),
-        "user_id": interaction.user.id,
-        "time": remind_time_utc.timestamp(),
-        "message": message,
-        "repeat": "weekly",
-        "type": "channel" if here else "dm"
-    }
-    if here:
-        data["channel_id"] = interaction.channel.id
-
-    reminders.append(data)
-    save_reminders(reminders)
-
-    formatted = format_jst_datetime(target)
-
-    embed = discord.Embed(
-        title="⏳ 毎週リマインダーを設定しました！",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="📅 曜日", value=weekday, inline=False)
-    embed.add_field(name="🕒 時刻（JST）", value=formatted, inline=False)
-    embed.add_field(name="💬 内容", value=message, inline=False)
-    embed.add_field(name="📍 場所", value=("このチャンネル" if here else "DM"), inline=False)
-    embed.set_footer(text=f"設定者: {interaction.user.name}")
-
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
+    # weekday.value は "mon" など英語表記
+    w = weekday.value
 
 # === /remind_list コマンド ===
 @tree.command(name="remind_list", description="設定されているリマインダーを一覧表示します")
@@ -370,6 +315,7 @@ async def remind_list(interaction: discord.Interaction):
         embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
         embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
         embed.add_field(name="💬 内容", value=r["message"], inline=False)
+        embed.add_field(name="📅 曜日", value=weekday_text, inline=False)
 
         view = ReminderDeleteView(r["uid"], interaction.user.id)
 
