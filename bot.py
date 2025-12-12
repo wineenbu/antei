@@ -336,48 +336,47 @@ async def remindeveryweek(
 
 
 # === /remindlist (削除ボタン付き) ===
-@tree.command(name="remindlist", description="設定中のリマインダー一覧を表示します")
-async def remindlist(interaction: discord.Interaction):
+@tree.command(name="remind_list", description="設定されているリマインダーを一覧表示します")
+async def remind_list(interaction: discord.Interaction):
     reminders = load_reminders()
-    user_reminders = [r for r in reminders if r["user_id"] == interaction.user.id]
+    user_id = interaction.user.id
+
+    # このユーザーのリマインダーだけ抽出
+    user_reminders = [
+        r for r in reminders 
+        if r.get("user_id") == user_id and not r.get("deleted", False)
+    ]
 
     if not user_reminders:
-        await interaction.response.send_message("📭 現在設定されているリマインダーはありません。", ephemeral=True)
+        await interaction.response.send_message("📭 現在、設定されているリマインダーはありません。", ephemeral=True)
         return
 
-    embed = discord.Embed(title="⏳ リマインダー一覧", color=discord.Color.blue())
-    view = discord.ui.View(timeout=None)
+    await interaction.response.send_message(
+        f"📋 {len(user_reminders)} 件のリマインダーがあります。",
+        ephemeral=True
+    )
 
-    for index, r in enumerate(user_reminders):
-        r_time = datetime.datetime.fromtimestamp(r["time"]) + datetime.timedelta(hours=9)
-        repeat_info = "(毎週)" if r.get("repeat") == "weekly" else ""
-        location = "DM" if r.get("type") == "dm" else f"<#{r.get('channel_id')}>"
+    # 1つずつ embed + ボタンを送信
+    for r in user_reminders:
+        dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
+        formatted = format_jst_datetime(dt)
+        repeat = r.get("repeat", "なし")
 
-        embed.add_field(
-            name=f"🆔 {r['uid']}",
-            value=f"📅 {r_time.strftime('%Y-%m-%d %H:%M:%S')} {repeat_info}\n💬 {r['message']}\n📍 {location}",
-            inline=False
+        embed = discord.Embed(
+            title="⏰ リマインダー",
+            color=discord.Color.blurple()
         )
+        embed.add_field(name="🆔 ID", value=r["uid"], inline=False)
+        embed.add_field(name="🕒 時刻", value=formatted, inline=False)
+        embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
+        embed.add_field(name="💬 内容", value=r["message"], inline=False)
 
-        # 削除ボタン
-        button = discord.ui.Button(label=f"削除 {index+1}", style=discord.ButtonStyle.danger)
-
-        async def callback(interaction_button, reminder_uid=r["uid"]):
-            reminders2 = load_reminders()
-            reminders2 = [x for x in reminders2 if x["uid"] != reminder_uid]
-            save_reminders(reminders2)
-
-            await interaction_button.response.edit_message(
-                content=f"🗑️ リマインダー ({reminder_uid}) を削除しました。",
-                embed=None,
-                view=None
-            )
-
-        button.callback = callback
-        view.add_item(button)
-
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
+        # 送信
+        await interaction.followup.send(
+            embed=embed,
+            view=DeleteReminderButton(r["uid"]),
+            ephemeral=True
+        )
 
 
 # === /reminddelete (コマンド版) ===
