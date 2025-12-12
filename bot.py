@@ -341,7 +341,6 @@ async def remind_list(interaction: discord.Interaction):
     reminders = load_reminders()
     user_id = interaction.user.id
 
-    # 対象ユーザーのリマインダーのみ
     user_reminders = [
         r for r in reminders 
         if r.get("user_id") == user_id and not r.get("deleted", False)
@@ -354,13 +353,11 @@ async def remind_list(interaction: discord.Interaction):
         )
         return
 
-    # 最初のレスポンス（「何件あるよ」）
     await interaction.response.send_message(
         f"📋 あなたのリマインダーは **{len(user_reminders)} 件** あります。",
         ephemeral=True
     )
 
-    # 1つずつ embed + 削除ボタンで表示
     for r in user_reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
         formatted_time = format_jst_datetime(dt)
@@ -375,14 +372,15 @@ async def remind_list(interaction: discord.Interaction):
         embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
         embed.add_field(name="💬 内容", value=r["message"], inline=False)
 
-        # 個別の削除ボタン
-        view = DeleteReminderButton(r["uid"])
+        # 🔥 修正済み：正しい削除ボタン View
+        view = ReminderDeleteView(r["uid"], interaction.user.id)
 
         await interaction.followup.send(
             embed=embed,
             view=view,
             ephemeral=True
         )
+
 
 # === /reminddelete (コマンド版) ===
 @tree.command(name="reminddelete", description="リマインドを削除する (UID指定)")
