@@ -381,15 +381,17 @@ async def remind_list(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-# === 起動（Flaskを別スレッドで立てる） ===
+# === 起動（Render 互換）===
 if __name__ == "__main__":
-    from threading import Thread
+    import threading
 
-    def run_flask():
-        port = int(os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port)
+    # --- Discord Bot をバックグラウンドで起動 ---
+    def run_bot():
+        client.run(TOKEN)
 
-    Thread(target=run_flask, daemon=True).start()
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
 
-    client.run(TOKEN)
-
+    # --- Flask（Render が必須とする Web サーバー）をメインスレッドで起動 ---
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
