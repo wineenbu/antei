@@ -277,8 +277,61 @@ async def remindeveryweek(
     message: str,
     here: bool = False
 ):
-    # weekday.value は "mon" など英語表記
-    w = weekday.value
+
+    # 曜日テーブル
+    weekday_map = {
+        "mon": 0, "tue": 1, "wed": 2, "thu": 3,
+        "fri": 4, "sat": 5, "sun": 6
+    }
+
+    # 今日の日付
+    now = datetime.datetime.now()
+    target_weekday = weekday_map[weekday.value]
+
+    # 入力された時刻を datetime に変換
+    try:
+        t = datetime.datetime.strptime(time_str, "%H:%M")
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ 時刻の形式が正しくありません。（例: 14:30）",
+            ephemeral=True
+        )
+        return
+
+    # 初回の実行時間を計算
+    first_time = now.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+
+    # 目標曜日までの日数を計算
+    days_ahead = (target_weekday - now.weekday()) % 7
+    if days_ahead == 0 and first_time <= now:
+        days_ahead = 7
+
+    first_time += datetime.timedelta(days=days_ahead)
+
+    # UTC へ変換
+    first_time_utc = first_time - datetime.timedelta(hours=9)
+
+    uid = str(uuid.uuid4())
+    reminders = load_reminders()
+    reminders.append({
+        "uid": uid,
+        "user_id": interaction.user.id,
+        "channel_id": interaction.channel.id if here else None,
+        "time": first_time_utc.timestamp(),
+        "message": message,
+        "repeat": "weekly",
+        "weekday": weekday.value,
+        "type": "channel" if here else "dm"
+    })
+    save_reminders(reminders)
+
+    embed = discord.Embed(title="🔁 毎週リマインド設定", color=discord.Color.green())
+    embed.add_field(name="📅 曜日", value=weekday.name, inline=False)
+    embed.add_field(name="🕒 時刻", value=time_str, inline=False)
+    embed.add_field(name="💬 内容", value=message, inline=False)
+    embed.add_field(name="📍 送信先", value="このチャンネル" if here else "DM", inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # === /remind_list コマンド ===
 @tree.command(name="remind_list", description="設定されているリマインダーを一覧表示します")
@@ -287,16 +340,21 @@ async def remind_list(interaction: discord.Interaction):
     user_id = interaction.user.id
 
     user_reminders = [
-        r for r in reminders 
+        r for r in reminders
         if r.get("user_id") == user_id and not r.get("deleted", False)
     ]
 
     if not user_reminders:
         await interaction.response.send_message(
-            "📭 現在、設定されているリマインダーはありません。", 
+            "📭 現在、設定されているリマインダーはありません。",
             ephemeral=True
         )
         return
+
+    weekday_jp = {
+        "mon": "月曜日", "tue": "火曜日", "wed": "水曜日",
+        "thu": "木曜日", "fri": "金曜日", "sat": "土曜日", "sun": "日曜日"
+    }
 
     await interaction.response.send_message(
         f"📋 あなたのリマインダーは **{len(user_reminders)} 件** あります。",
@@ -308,22 +366,18 @@ async def remind_list(interaction: discord.Interaction):
         formatted_time = format_jst_datetime(dt)
         repeat = r.get("repeat", "なし")
 
-        embed = discord.Embed(
-            title="⏰ リマインダー",
-            color=discord.Color.blurple()
-        )
+        embed = discord.Embed(title="⏰ リマインダー", color=discord.Color.blurple())
         embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
         embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
         embed.add_field(name="💬 内容", value=r["message"], inline=False)
-        embed.add_field(name="📅 曜日", value=weekday_text, inline=False)
 
-        view = ReminderDeleteView(r["uid"], interaction.user.id)
+        # 毎週リマインドなら曜日表示
+        if r.get("repeat") == "weekly":
+            w = r.get("weekday", "?")
+            embed.add_field(name="📅 曜日", value=weekday_jp.get(w, "不明"), inline=False)
 
-        await interaction.followup.send(
-            embed=embed,
-            view=view,
-            ephemeral=True
-        )
+        view = ReminderDeleteView(r["uid"], user_id)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 # === 起動（Flaskを別スレッドで立てる） ===
