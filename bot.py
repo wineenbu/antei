@@ -335,31 +335,35 @@ async def remindeveryweek(
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-# === /remindlist (削除ボタン付き) ===
+# === /remind_list コマンド ===
 @tree.command(name="remind_list", description="設定されているリマインダーを一覧表示します")
 async def remind_list(interaction: discord.Interaction):
     reminders = load_reminders()
     user_id = interaction.user.id
 
-    # このユーザーのリマインダーだけ抽出
+    # 対象ユーザーのリマインダーのみ
     user_reminders = [
         r for r in reminders 
         if r.get("user_id") == user_id and not r.get("deleted", False)
     ]
 
     if not user_reminders:
-        await interaction.response.send_message("📭 現在、設定されているリマインダーはありません。", ephemeral=True)
+        await interaction.response.send_message(
+            "📭 現在、設定されているリマインダーはありません。", 
+            ephemeral=True
+        )
         return
 
+    # 最初のレスポンス（「何件あるよ」）
     await interaction.response.send_message(
-        f"📋 {len(user_reminders)} 件のリマインダーがあります。",
+        f"📋 あなたのリマインダーは **{len(user_reminders)} 件** あります。",
         ephemeral=True
     )
 
-    # 1つずつ embed + ボタンを送信
+    # 1つずつ embed + 削除ボタンで表示
     for r in user_reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.UTC)
-        formatted = format_jst_datetime(dt)
+        formatted_time = format_jst_datetime(dt)
         repeat = r.get("repeat", "なし")
 
         embed = discord.Embed(
@@ -367,17 +371,18 @@ async def remind_list(interaction: discord.Interaction):
             color=discord.Color.blurple()
         )
         embed.add_field(name="🆔 ID", value=r["uid"], inline=False)
-        embed.add_field(name="🕒 時刻", value=formatted, inline=False)
+        embed.add_field(name="🕒 時刻", value=formatted_time, inline=False)
         embed.add_field(name="🔁 繰り返し", value=repeat, inline=False)
         embed.add_field(name="💬 内容", value=r["message"], inline=False)
 
-        # 送信
+        # 個別の削除ボタン
+        view = DeleteReminderButton(r["uid"])
+
         await interaction.followup.send(
             embed=embed,
-            view=DeleteReminderButton(r["uid"]),
+            view=view,
             ephemeral=True
         )
-
 
 # === /reminddelete (コマンド版) ===
 @tree.command(name="reminddelete", description="リマインドを削除する (UID指定)")
