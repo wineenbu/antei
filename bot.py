@@ -84,31 +84,31 @@ async def check_reminders():
             try:
                 dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
 
-                # --- テキスト形式送信 ---
-                text_lines = []
-                if r.get("role_id") and r["destination"] == "channel":
-                    ch = client.get_channel(r["channel_id"])
-                    role = ch.guild.get_role(r["role_id"]) if ch else None
-                    if role:
-                        text_lines.append(role.mention)
-                text_lines.extend([
-                    "🔔 リマインダー",
-                    f"内容: {r['message']}",
-                    f"時刻: {format_jst(dt)}",
-                    f"設定者: <@{r['user_id']}>"
-                ])
-                text = "\n".join(text_lines)
+                # Embedに内容をdescriptionに入れることで通知に表示
+                embed = discord.Embed(
+                    title="🔔 リマインダー",
+                    description=r["message"],
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="🕒 時刻", value=format_jst(dt), inline=False)
+                embed.set_footer(text=f"設定者: <@{r['user_id']}>")
+
                 allowed = discord.AllowedMentions(roles=True)
+
+                # メンションがある場合はcontentに
+                content = None
+                if r.get("role_id"):
+                    content = f"<@&{r['role_id']}>"
 
                 if r["destination"] == "channel":
                     ch = client.get_channel(r["channel_id"])
                     if ch:
-                        await ch.send(content=text, allowed_mentions=allowed)
+                        await ch.send(content=content, embed=embed, allowed_mentions=allowed)
                 else:
                     user = await client.fetch_user(r["user_id"])
-                    await user.send(content=text)
+                    await user.send(content=content, embed=embed, allowed_mentions=allowed)
 
-                # --- 繰り返し処理 ---
+                # weeklyなら次回に更新
                 if r.get("repeat") == "weekly":
                     next_dt = dt + datetime.timedelta(days=7)
                     r["time"] = next_dt.timestamp()
@@ -196,30 +196,38 @@ async def remind(
         else:
             if not weekday:
                 raise ValueError("weekly には weekday が必要です")
+
             hhmm = datetime.datetime.strptime(time, "%H:%M")
             now = datetime.datetime.now()
-            target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0)
-            wmap = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
-            wd = wmap.get(weekday.lower())
+            target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0)
+
+            weekday_map = {
+                "mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6
+            }
+            wd = weekday_map.get(weekday.lower())
             if wd is None:
                 raise ValueError("weekday は mon/tue/... を指定してください")
+
             days_ahead = (wd - target.weekday()) % 7
             if days_ahead == 0 and target <= now:
                 days_ahead = 7
             dt = target + datetime.timedelta(days=days_ahead)
 
-        ts = (dt - datetime.timedelta(hours=9)).timestamp()
+        remind_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+
     except Exception as e:
         await interaction.response.send_message(f"❌ {e}", ephemeral=True)
         return
 
+    # 保存
     entry = {
         "uid": str(uuid.uuid4()),
         "user_id": interaction.user.id,
-        "time": ts,
+        "time": remind_ts,
         "message": message,
-        "destination": destination.value,
+        "destination": destination.value
     }
+
     if destination.value == "channel":
         entry["channel_id"] = channel.id
     if role:
@@ -232,33 +240,41 @@ async def remind(
     reminders.append(entry)
     save_reminders(reminders)
 
-    # --- メッセージ形式 ---
-    lines = []
-    if role and destination.value == "channel":
-        lines.append(role.mention)
-    lines.extend([
-        "🔔 リマインダー設定完了",
-        f"内容: {message}",
-        f"時刻: {format_jst(datetime.datetime.fromtimestamp(ts, datetime.timezone.utc))}",
-    ])
-    if mode.value == "weekly":
-        lines.append(f"繰り返し: 毎週 ({weekday})")
-    lines.append(f"設定者: {interaction.user.display_name}")
-    text = "\n".join(lines)
-    allowed = discord.AllowedMentions(roles=True)
+    # 設定完了 Embed（descriptionに本文を入れて通知に表示）
+    confirm_embed = discord.Embed(
+        title="✅ リマインダー設定完了",
+        description=message,
+        color=discord.Color.green()
+    )
+    confirm_embed.add_field(name="🕒 時刻", value=format_jst(dt), inline=False)
+    if role:
+        confirm_embed.add_field(name="🔔 メンション", value=role.mention, inline=False)
+    confirm_embed.add_field(
+        name="📍 送信先",
+        value=("DM" if destination.value=="dm" else f"#{channel.name}"),
+        inline=False
+    )
+    confirm_embed.set_footer(text=f"設定者: {interaction.user.display_name}")
 
+    allowed = discord.AllowedMentions(roles=True)
+    content = role.mention if role else None
+
+    # 即時送信
     try:
         if destination.value == "channel":
-            await channel.send(content=text, allowed_mentions=allowed)
+            await channel.send(content=content, embed=confirm_embed, allowed_mentions=allowed)
         else:
             user = await client.fetch_user(interaction.user.id)
-            await user.send(content=text)
+            await user.send(content=content, embed=confirm_embed, allowed_mentions=allowed)
     except Exception as e:
-        print("設定完了送信失敗:", e)
+        print("設定完了Embed送信失敗:", e)
 
-    await interaction.response.send_message(content=text, ephemeral=True)
+    # Slash応答（本人確認用）
+    await interaction.response.send_message(embed=confirm_embed, ephemeral=True)
 
-# === /remind_list ===
+# ======================
+# /remind_list
+# ======================
 @tree.command(name="remind_list", description="リマインダー一覧")
 async def remind_list(interaction: discord.Interaction):
     reminders = [r for r in load_reminders() if r["user_id"] == interaction.user.id and not r.get("deleted")]
@@ -267,12 +283,14 @@ async def remind_list(interaction: discord.Interaction):
         return
 
     await interaction.response.send_message(f"📋 {len(reminders)} 件", ephemeral=True)
-
     for r in reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
-        embed = discord.Embed(title="⏰ リマインダー")
+        embed = discord.Embed(
+            title="⏰ リマインダー",
+            description=r["message"],
+            color=discord.Color.blurple()
+        )
         embed.add_field(name="🕒 時刻", value=format_jst(dt))
-        embed.add_field(name="💬 内容", value=r["message"])
         await interaction.followup.send(embed=embed, view=ReminderDeleteView(r["uid"], interaction.user.id), ephemeral=True)
 
 # === 起動 ===
