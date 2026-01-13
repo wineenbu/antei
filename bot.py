@@ -149,6 +149,7 @@ async def on_ready():
     time="日時 or HH:MM",
     destination="送信先",
     channel="送信先チャンネル（destination=channel の場合）",
+    role="メンションするロール（任意）",
     weekday="weekly の場合のみ",
     message="内容"
 )
@@ -169,6 +170,7 @@ async def remind(
     destination: app_commands.Choice[str],
     message: str,
     channel: discord.TextChannel | None = None,
+    role: discord.Role | None = None,
     weekday: str | None = None,
 ):
     # === チャンネル必須チェック ===
@@ -229,6 +231,9 @@ async def remind(
     if destination.value == "channel":
         entry["channel_id"] = channel.id
 
+    if role:
+        entry["role_id"] = role.id
+
     if mode.value == "weekly":
         entry["repeat"] = "weekly"
         entry["weekday"] = weekday
@@ -259,10 +264,10 @@ async def remind(
         inline=False
     )
 
-    if mode.value == "weekly":
+    if role:
         confirm_embed.add_field(
-            name="🔁 繰り返し",
-            value=f"毎週 ({weekday})",
+            name="🔔 メンション",
+            value=role.mention,
             inline=False
         )
 
@@ -276,10 +281,17 @@ async def remind(
         text=f"設定者: {interaction.user.display_name}"
     )
 
+    # === メンション用設定 ===
+    allowed = discord.AllowedMentions(roles=True)
+
     # === 即時送信 ===
     try:
         if destination.value == "channel":
-            await channel.send(embed=confirm_embed)
+            await channel.send(
+                content=role.mention if role else None,
+                embed=confirm_embed,
+                allowed_mentions=allowed
+            )
         else:
             user = await client.fetch_user(interaction.user.id)
             await user.send(embed=confirm_embed)
@@ -291,7 +303,6 @@ async def remind(
         embed=confirm_embed,
         ephemeral=True
     )
-
 
 # === /remind_list ===
 @tree.command(name="remind_list", description="リマインダー一覧")
