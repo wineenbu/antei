@@ -153,7 +153,8 @@ WEEKDAYS = [
 @app_commands.describe(
     mode="at=日時指定 / weekly=毎週",
     time="日時 or HH:MM",
-    channel="送信先（未指定=このチャンネル / DM可）",
+    send_to="送信先",
+    channel="送信先チャンネル（送信先=指定チャンネルの場合）",
     role="メンションするロール（任意）",
     weekday="weekly の場合のみ選択",
     message="内容"
@@ -163,7 +164,9 @@ WEEKDAYS = [
         app_commands.Choice(name="日時指定", value="at"),
         app_commands.Choice(name="毎週", value="weekly"),
     ],
-    channel=[
+    send_to=[
+        app_commands.Choice(name="このチャンネル", value="here"),
+        app_commands.Choice(name="指定チャンネル", value="channel"),
         app_commands.Choice(name="DM", value="dm"),
     ],
     weekday=WEEKDAYS
@@ -173,14 +176,24 @@ async def remind(
     mode: app_commands.Choice[str],
     time: str,
     message: str,
-    channel: str | None = None,
+    send_to: app_commands.Choice[str],
+    channel: discord.TextChannel | None = None,
     role: discord.Role | None = None,
     weekday: app_commands.Choice[str] | None = None,
 ):
     # weekly 曜日必須
     if mode.value == "weekly" and not weekday:
         await interaction.response.send_message(
-            "❌ 毎週モードの場合は曜日を選択してください", ephemeral=True
+            "❌ 毎週モードの場合は曜日を選択してください",
+            ephemeral=True
+        )
+        return
+
+    # 指定チャンネル時のチェック
+    if send_to.value == "channel" and channel is None:
+        await interaction.response.send_message(
+            "❌ 送信先が「指定チャンネル」の場合は channel を指定してください",
+            ephemeral=True
         )
         return
 
@@ -192,7 +205,10 @@ async def remind(
             hhmm = datetime.datetime.strptime(time, "%H:%M")
             now = datetime.datetime.now()
             target = now.replace(
-                hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0
+                hour=hhmm.hour,
+                minute=hhmm.minute,
+                second=0,
+                microsecond=0
             )
             weekday_map = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
             wd = weekday_map[weekday.value]
@@ -206,9 +222,16 @@ async def remind(
         await interaction.response.send_message(f"❌ {e}", ephemeral=True)
         return
 
-    # 送信先判定
-    send_to_dm = channel == "dm"
-    send_channel = None if send_to_dm else interaction.channel
+    # 送信先決定
+    if send_to.value == "dm":
+        send_type = "dm"
+        send_channel = None
+    elif send_to.value == "channel":
+        send_type = "channel"
+        send_channel = channel
+    else:  # here
+        send_type = "channel"
+        send_channel = interaction.channel
 
     # 保存
     entry = {
@@ -216,10 +239,10 @@ async def remind(
         "user_id": interaction.user.id,
         "time": remind_ts,
         "message": message,
-        "send_to": "dm" if send_to_dm else "channel",
+        "send_to": send_type,
     }
 
-    if not send_to_dm:
+    if send_type == "channel":
         entry["channel_id"] = send_channel.id
 
     if role:
@@ -241,14 +264,17 @@ async def remind(
         content = f"<@&{role.id}> " + content
 
     try:
-        if send_to_dm:
+        if send_type == "dm":
             await interaction.user.send(content)
         else:
             await send_channel.send(content)
     except Exception as e:
         print("設定完了送信失敗:", e)
 
-    await interaction.response.send_message("リマインダーを設定しました！", ephemeral=True)
+    await interaction.response.send_message(
+        "リマインダーを設定しました！",
+        ephemeral=True
+    )
 
 # === /remind_list ===
 @tree.command(name="remind_list", description="リマインダー一覧")
@@ -262,7 +288,10 @@ async def remind_list(interaction: discord.Interaction):
         await interaction.response.send_message("📭 なし", ephemeral=True)
         return
 
-    await interaction.response.send_message(f"📋 {len(reminders)} 件", ephemeral=True)
+    await interaction.response.send_message(
+        f"📋 {len(reminders)} 件",
+        ephemeral=True
+    )
 
     for r in reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
@@ -281,4 +310,7 @@ if __name__ == "__main__":
         client.run(TOKEN)
 
     threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
+    )
