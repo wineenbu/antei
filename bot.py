@@ -257,7 +257,6 @@ async def remind(
     save_reminders(reminders)
 
     # 設定完了メッセージ
-    dt_utc = datetime.datetime.fromtimestamp(remind_ts, datetime.timezone.utc)
     content = f"✅ リマインダー設定完了\n🕒 {format_jst(dt_utc)}\n💬 {message}"
 
     if role:
