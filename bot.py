@@ -257,7 +257,9 @@ async def remind(
     save_reminders(reminders)
 
     # 設定完了メッセージ
-    content = f"✅ リマインダー設定完了\n🕒 {format_jst(dt)}\n💬 {message}"
+    dt_utc = datetime.datetime.fromtimestamp(remind_ts, datetime.timezone.utc)
+    content = f"✅ リマインダー設定完了\n🕒 {format_jst(dt_utc)}\n💬 {message}"
+
     if role:
         content = f"<@&{role.id}> " + content
     content += f"\n📍 {'DM' if destination.value=='dm' else f'#{channel.name}'}"
