@@ -1,4 +1,3 @@
-# bot.py
 import os
 import json
 import datetime
@@ -38,7 +37,7 @@ def save_reminders(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# === 日時パース ===
+# === 日時パース（JST入力想定）===
 def parse_datetime_input(time_str: str) -> datetime.datetime:
     formats = [
         "%Y-%m-%dT%H:%M",
@@ -62,12 +61,10 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
             continue
     raise ValueError("日時形式が不正です")
 
-# === JST 表示 ===
-def format_jst(dt):
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-    jst = dt.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
-    return jst.strftime("%Y年%m月%d日 %H:%M")
+# === JST 表示（UTC前提）===
+def format_jst(dt: datetime.datetime):
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    return dt.astimezone(jst).strftime("%Y年%m月%d日 %H:%M")
 
 # === リマインダー監視 ===
 @tasks.loop(seconds=30)
@@ -84,20 +81,20 @@ async def check_reminders():
             try:
                 dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
                 content = f"⏰ {format_jst(dt)}\n💬 {r['message']}"
+
                 if r.get("role_id"):
                     content = f"<@&{r['role_id']}> " + content
 
-                if r["destination"] == "channel":
+                if r["send_to"] == "dm":
+                    user = await client.fetch_user(r["user_id"])
+                    await user.send(content)
+                else:
                     ch = client.get_channel(r["channel_id"])
                     if ch:
                         await ch.send(content)
-                else:
-                    user = await client.fetch_user(r["user_id"])
-                    await user.send(content)
 
                 if r.get("repeat") == "weekly":
-                    next_dt = dt + datetime.timedelta(days=7)
-                    r["time"] = next_dt.timestamp()
+                    r["time"] = (dt + datetime.timedelta(days=7)).timestamp()
                     remaining.append(r)
 
             except Exception as e:
@@ -126,7 +123,9 @@ class ReminderDeleteView(discord.ui.View):
             if r["uid"] == self.uid:
                 r["deleted"] = True
                 save_reminders(reminders)
-                await interaction.response.edit_message(content="🗑 削除しました", view=None)
+                await interaction.response.edit_message(
+                    content="🗑 削除しました", view=None
+                )
                 return
 
 # === on_ready ===
@@ -136,7 +135,7 @@ async def on_ready():
     await tree.sync()
     check_reminders.start()
 
-# === 曜日選択用 Choice ===
+# === 曜日 Choice ===
 WEEKDAYS = [
     app_commands.Choice(name="月曜日", value="mon"),
     app_commands.Choice(name="火曜日", value="tue"),
@@ -147,13 +146,6 @@ WEEKDAYS = [
     app_commands.Choice(name="日曜日", value="sun"),
 ]
 
-# === Autocomplete 関数 ===
-async def weekday_autocomplete(interaction: discord.Interaction, current: str):
-    return [wd for wd in WEEKDAYS if current.lower() in wd.name.lower()]
-
-# ======================
-# /remind
-# ======================
 # ======================
 # /remind
 # ======================
@@ -161,8 +153,7 @@ async def weekday_autocomplete(interaction: discord.Interaction, current: str):
 @app_commands.describe(
     mode="at=日時指定 / weekly=毎週",
     time="日時 or HH:MM",
-    destination="送信先",
-    channel="送信先チャンネル（destination=channel の場合）",
+    channel="送信先（未指定=このチャンネル / DM可）",
     role="メンションするロール（任意）",
     weekday="weekly の場合のみ選択",
     message="内容"
@@ -172,60 +163,39 @@ async def weekday_autocomplete(interaction: discord.Interaction, current: str):
         app_commands.Choice(name="日時指定", value="at"),
         app_commands.Choice(name="毎週", value="weekly"),
     ],
-    destination=[
+    channel=[
         app_commands.Choice(name="DM", value="dm"),
-        app_commands.Choice(name="チャンネル", value="channel"),
     ],
-    weekday=[
-        app_commands.Choice(name="月曜日", value="mon"),
-        app_commands.Choice(name="火曜日", value="tue"),
-        app_commands.Choice(name="水曜日", value="wed"),
-        app_commands.Choice(name="木曜日", value="thu"),
-        app_commands.Choice(name="金曜日", value="fri"),
-        app_commands.Choice(name="土曜日", value="sat"),
-        app_commands.Choice(name="日曜日", value="sun"),
-    ]
+    weekday=WEEKDAYS
 )
 async def remind(
     interaction: discord.Interaction,
     mode: app_commands.Choice[str],
     time: str,
-    destination: app_commands.Choice[str],
     message: str,
-    channel: discord.TextChannel | None = None,
+    channel: str | None = None,
     role: discord.Role | None = None,
-    weekday: app_commands.Choice[str] | None = None,  # ← Choice に変更
+    weekday: app_commands.Choice[str] | None = None,
 ):
-    # チャンネル必須チェック
-    if destination.value == "channel" and channel is None:
-        await interaction.response.send_message(
-            "❌ destination=channel の場合は channel を指定してください。", ephemeral=True
-        )
-        return
-
-    # weekly の曜日チェック
-    selected_weekday = weekday.value if weekday else None
-    if mode.value == "weekly" and not selected_weekday:
+    # weekly 曜日必須
+    if mode.value == "weekly" and not weekday:
         await interaction.response.send_message(
             "❌ 毎週モードの場合は曜日を選択してください", ephemeral=True
         )
         return
 
-    # 時刻計算
+    # 時刻計算（JST）
     try:
         if mode.value == "at":
             dt = parse_datetime_input(time)
         else:
-            # weekly
             hhmm = datetime.datetime.strptime(time, "%H:%M")
             now = datetime.datetime.now()
-            target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0)
-
+            target = now.replace(
+                hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0
+            )
             weekday_map = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
-            wd = weekday_map.get(selected_weekday)
-            if wd is None:
-                raise ValueError("曜日選択が不正です")
-
+            wd = weekday_map[weekday.value]
             days_ahead = (wd - target.weekday()) % 7
             if days_ahead == 0 and target <= now:
                 days_ahead = 7
@@ -236,51 +206,57 @@ async def remind(
         await interaction.response.send_message(f"❌ {e}", ephemeral=True)
         return
 
+    # 送信先判定
+    send_to_dm = channel == "dm"
+    send_channel = None if send_to_dm else interaction.channel
+
     # 保存
     entry = {
         "uid": str(uuid.uuid4()),
         "user_id": interaction.user.id,
         "time": remind_ts,
         "message": message,
-        "destination": destination.value
+        "send_to": "dm" if send_to_dm else "channel",
     }
-    if destination.value == "channel":
-        entry["channel_id"] = channel.id
+
+    if not send_to_dm:
+        entry["channel_id"] = send_channel.id
+
     if role:
         entry["role_id"] = role.id
+
     if mode.value == "weekly":
         entry["repeat"] = "weekly"
-        entry["weekday"] = selected_weekday
+        entry["weekday"] = weekday.value
 
     reminders = load_reminders()
     reminders.append(entry)
     save_reminders(reminders)
 
-    # 設定完了メッセージ
-    dt_utc = datetime.datetime.fromtimestamp(remind_ts, datetime.timezone.utc)
-    content = f"✅ リマインダー設定完了\n🕒 {format_jst(dt_utc)}\n💬 {message}"
-
+    # 設定完了通知
+    dt_display = datetime.datetime.fromtimestamp(remind_ts, datetime.timezone.utc)
+    content = f"✅ リマインダー設定完了\n🕒 {format_jst(dt_display)}\n💬 {message}"
 
     if role:
         content = f"<@&{role.id}> " + content
-    content += f"\n📍 {'DM' if destination.value=='dm' else f'#{channel.name}'}"
 
     try:
-        if destination.value == "channel":
-            await channel.send(content=content)
+        if send_to_dm:
+            await interaction.user.send(content)
         else:
-            user = await client.fetch_user(interaction.user.id)
-            await user.send(content=content)
+            await send_channel.send(content)
     except Exception as e:
         print("設定完了送信失敗:", e)
 
-    await interaction.response.send_message(content="リマインダーを設定しました！", ephemeral=True)
-
+    await interaction.response.send_message("リマインダーを設定しました！", ephemeral=True)
 
 # === /remind_list ===
 @tree.command(name="remind_list", description="リマインダー一覧")
 async def remind_list(interaction: discord.Interaction):
-    reminders = [r for r in load_reminders() if r["user_id"] == interaction.user.id and not r.get("deleted")]
+    reminders = [
+        r for r in load_reminders()
+        if r["user_id"] == interaction.user.id and not r.get("deleted")
+    ]
 
     if not reminders:
         await interaction.response.send_message("📭 なし", ephemeral=True)
@@ -291,7 +267,11 @@ async def remind_list(interaction: discord.Interaction):
     for r in reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
         content = f"⏰ {format_jst(dt)}\n💬 {r['message']}"
-        await interaction.followup.send(content=content, view=ReminderDeleteView(r["uid"], interaction.user.id), ephemeral=True)
+        await interaction.followup.send(
+            content=content,
+            view=ReminderDeleteView(r["uid"], interaction.user.id),
+            ephemeral=True
+        )
 
 # === 起動 ===
 if __name__ == "__main__":
