@@ -371,7 +371,7 @@ async def memo(
 
     # === DB保存 ===
     supabase.table("memos").insert({
-        "id": memo_id,
+        "uid": memo_uid,
         "user_id": interaction.user.id,
         "channel_id": None if dm else target_channel.id,
         "send_to": send_to,
