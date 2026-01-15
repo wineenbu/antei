@@ -321,27 +321,42 @@ class Paginator(discord.ui.View):
             await interaction.response.edit_message(embed=self.current_embed(), view=self)
 
     @discord.ui.select(placeholder="削除するアイテムを選択", min_values=1, max_values=1, options=[])
-    async def delete_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        try:
-            idx = int(select.values[0])-1
-        except:
-            await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
-            return
-        page_items = self.get_page_items()
-        if idx >= len(page_items):
-            await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
-            return
-        item = page_items[idx]
-        table_name = "memos" if self.item_type=="memo" else "reminders"
-        supabase.table(table_name).update({"deleted": True}).eq("uid", item["uid"]).execute()
-        self.items.remove(item)
-        if self.page >= self.total_pages():
-            self.page = max(0, self.total_pages()-1)
-        if self.items:
-            await self.update_select_options()
-            await interaction.response.edit_message(embed=self.current_embed(), view=self)
-        else:
-            await interaction.response.edit_message(content="📭 すべて削除されました", embed=None, view=None)
+async def delete_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+    # 追加: 権限チェック
+    if interaction.user.id != self.user_id:
+        await interaction.response.send_message("❌ 権限がありません", ephemeral=True)
+        return
+
+    try:
+        idx = int(select.values[0]) - 1
+    except:
+        await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
+        return
+
+    page_items = self.get_page_items()
+    if idx >= len(page_items):
+        await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
+        return
+
+    item = page_items[idx]
+
+    # さらに安全に: アイテムの user_id と比較しても良い
+    if item["user_id"] != interaction.user.id:
+        await interaction.response.send_message("❌ あなたはこのアイテムを削除できません", ephemeral=True)
+        return
+
+    table_name = "memos" if self.item_type=="memo" else "reminders"
+    supabase.table(table_name).update({"deleted": True}).eq("uid", item["uid"]).execute()
+    self.items.remove(item)
+    if self.page >= self.total_pages():
+        self.page = max(0, self.total_pages()-1)
+
+    if self.items:
+        await self.update_select_options()
+        await interaction.response.edit_message(embed=self.current_embed(), view=self)
+    else:
+        await interaction.response.edit_message(content="📭 すべて削除されました", embed=None, view=None)
+
 
     async def update_select_options(self):
         self.delete_select.options = []
