@@ -23,16 +23,16 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 if not TOKEN:
     raise ValueError("DISCORD_TOKEN が設定されていません")
 
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
 # =====================
 # Supabase
 # =====================
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
 
 # =====================
 # JST 表示
@@ -81,16 +81,35 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
     raise ValueError("日時形式が不正です")
 
 # =====================
+# Choice 定義
+# =====================
+REMIND_LIST_SCOPE = [
+    app_commands.Choice(name="自分のリマインド", value="me"),
+    app_commands.Choice(name="このチャンネルのリマインド", value="channel"),
+]
+
+LIST_SCOPE = [
+    app_commands.Choice(name="自分のメモ", value="me"),
+    app_commands.Choice(name="このチャンネルのメモ", value="channel"),
+]
+
+WEEKDAYS = [
+    app_commands.Choice(name="月曜日", value="mon"),
+    app_commands.Choice(name="火曜日", value="tue"),
+    app_commands.Choice(name="水曜日", value="wed"),
+    app_commands.Choice(name="木曜日", value="thu"),
+    app_commands.Choice(name="金曜日", value="fri"),
+    app_commands.Choice(name="土曜日", value="sat"),
+    app_commands.Choice(name="日曜日", value="sun"),
+]
+
+# =====================
 # リマインダー監視
 # =====================
 @tasks.loop(seconds=30)
 async def check_reminders():
     now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
-    res = supabase.table("reminders") \
-        .select("*") \
-        .eq("deleted", False) \
-        .execute()
-
+    res = supabase.table("reminders").select("*").eq("deleted", False).execute()
     for r in res.data or []:
         if r["time"] <= now_ts:
             try:
@@ -109,90 +128,70 @@ async def check_reminders():
 
                 if r.get("repeat") == "weekly":
                     new_time = (dt + datetime.timedelta(days=7)).timestamp()
-                    supabase.table("reminders") \
-                        .update({"time": new_time}) \
-                        .eq("uid", r["uid"]) \
-                        .execute()
+                    supabase.table("reminders").update({"time": new_time}).eq("uid", r["uid"]).execute()
                 else:
-                    supabase.table("reminders") \
-                        .update({"deleted": True}) \
-                        .eq("uid", r["uid"]) \
-                        .execute()
-
+                    supabase.table("reminders").update({"deleted": True}).eq("uid", r["uid"]).execute()
             except Exception as e:
                 print("送信失敗:", e)
 
 # =====================
-# 削除ボタン＆ページ送りボタン用 View
+# 削除ボタン（1件ずつ）
 # =====================
-class ListView(discord.ui.View):
-    def __init__(self, table: str, items: list, owner_id: int, start_index: int = 0):
-        super().__init__(timeout=180)
-        self.table = table
-        self.items = items
+class DeleteView(discord.ui.View):
+    def __init__(self, uid, owner_id):
+        super().__init__(timeout=None)
+        self.uid = uid
         self.owner_id = owner_id
-        self.start_index = start_index
-        self.page_size = 10
-        self.update_buttons()
 
-    def update_buttons(self):
-        self.clear_items()
-        # ◀
-        if self.start_index > 0:
-            self.add_item(discord.ui.Button(label="◀", style=discord.ButtonStyle.secondary, custom_id="prev"))
-        # ❌ 削除
-        self.add_item(discord.ui.Button(label="❌ 削除", style=discord.ButtonStyle.danger, custom_id="delete"))
-        # ▶
-        if self.start_index + self.page_size < len(self.items):
-            self.add_item(discord.ui.Button(label="▶", style=discord.ButtonStyle.secondary, custom_id="next"))
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    @discord.ui.button(label="❌ 削除", style=discord.ButtonStyle.danger)
+    async def delete(self, interaction: discord.Interaction, _):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("❌ あなた以外は操作できません", ephemeral=True)
-            return False
-        return True
+            await interaction.response.send_message("権限がありません", ephemeral=True)
+            return
 
-    @discord.ui.button(label="dummy", style=discord.ButtonStyle.secondary, disabled=True, custom_id="dummy")
-    async def dummy(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        supabase.table("memos").update({"deleted": True}).eq("uid", self.uid).execute()
+        supabase.table("reminders").update({"deleted": True}).eq("uid", self.uid).execute()
+        await interaction.response.edit_message(content="🗑 削除しました", view=None)
 
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
+# =====================
+# ページングビュー
+# =====================
+class Paginator(discord.ui.View):
+    def __init__(self, items, owner_id, per_page=5):
+        super().__init__(timeout=None)
+        self.items = items
+        self.page = 0
+        self.per_page = per_page
+        self.owner_id = owner_id
 
-    async def interaction_callback(self, interaction: discord.Interaction):
-        custom_id = interaction.data["custom_id"]
-        if custom_id == "prev":
-            self.start_index = max(self.start_index - self.page_size, 0)
-            self.update_embed(interaction)
-        elif custom_id == "next":
-            self.start_index = min(self.start_index + self.page_size, len(self.items))
-            self.update_embed(interaction)
-        elif custom_id == "delete":
-            # 削除は現在ページの全件を削除
-            for item in self.items[self.start_index:self.start_index+self.page_size]:
-                supabase.table(self.table).update({"deleted": True}).eq("uid", item["uid"]).execute()
-            await interaction.response.edit_message(content="🗑 削除しました", embed=None, view=None)
-
-    def create_embed(self):
-        embed = discord.Embed(
-            title=f"{'リマインド' if self.table=='reminders' else 'メモ'} 一覧",
-            color=discord.Color.orange() if self.table=="reminders" else discord.Color.green()
-        )
-        page_items = self.items[self.start_index:self.start_index+self.page_size]
-        for item in page_items:
-            dt = datetime.datetime.fromtimestamp(item["time"], datetime.timezone.utc)
+    def get_embed(self):
+        start = self.page * self.per_page
+        end = start + self.per_page
+        embed = discord.Embed(title="一覧", color=discord.Color.green())
+        for item in self.items[start:end]:
+            dt_utc = datetime.datetime.fromtimestamp(item["time"], datetime.timezone.utc)
             where = "📩 DM" if item["send_to"] == "dm" else "📢 チャンネル"
-            repeat = ""
-            if self.table=="reminders" and item.get("repeat")=="weekly":
-                repeat = f"\n🔁 毎週（{WEEKDAY_JP.get(item['weekday'],'')}）"
-            embed.add_field(
-                name=f"{where}｜{format_jst(dt)} {repeat}",
-                value=item["message"][:100],
-                inline=False
-            )
-        embed.set_footer(text=f"{self.start_index+1}-{min(self.start_index+self.page_size,len(self.items))} / {len(self.items)} 件")
+            embed.add_field(name=f"{where}｜{format_jst(dt_utc)}", value=item["message"][:100], inline=False)
+        embed.set_footer(text=f"ページ {self.page+1}/{(len(self.items)-1)//self.per_page+1}")
         return embed
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_page(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("権限がありません", ephemeral=True)
+            return
+        if self.page > 0:
+            self.page -= 1
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, _):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("権限がありません", ephemeral=True)
+            return
+        if (self.page + 1) * self.per_page < len(self.items):
+            self.page += 1
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
 
 # =====================
 # on_ready
@@ -204,54 +203,166 @@ async def on_ready():
     check_reminders.start()
 
 # =====================
-# /remind
+# /remind コマンド
 # =====================
-# （既存コードそのまま）...
-# 省略（以前の /remind コマンドを使う）
+@tree.command(name="remind", description="リマインダーを設定します")
+@app_commands.choices(
+    mode=[app_commands.Choice(name="日時指定", value="at"), app_commands.Choice(name="毎週", value="weekly")],
+    weekday=WEEKDAYS
+)
+async def remind(
+    interaction: discord.Interaction,
+    mode: app_commands.Choice[str],
+    time: str,
+    message: str,
+    channel: discord.TextChannel | None = None,
+    dm: bool | None = False,
+    role: discord.Role | None = None,
+    weekday: app_commands.Choice[str] | None = None,
+):
+    if mode.value == "weekly" and not weekday:
+        await interaction.response.send_message("❌ 毎週モードの場合は曜日を選択してください", ephemeral=True)
+        return
+
+    # 時刻計算
+    try:
+        if mode.value == "at":
+            dt = parse_datetime_input(time)
+        else:
+            hhmm = datetime.datetime.strptime(time, "%H:%M")
+            now = datetime.datetime.now()
+            target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0)
+            weekday_map = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
+            wd = weekday_map[weekday.value]
+            days_ahead = (wd - target.weekday()) % 7
+            if days_ahead == 0 and target <= now:
+                days_ahead = 7
+            dt = target + datetime.timedelta(days=days_ahead)
+        remind_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+    except Exception as e:
+        await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        return
+
+    send_to = "dm" if dm else "channel"
+    target_channel = channel or interaction.channel
+    entry = {
+        "uid": str(uuid.uuid4()),
+        "user_id": interaction.user.id,
+        "channel_id": None if dm else target_channel.id,
+        "role_id": role.id if role else None,
+        "send_to": send_to,
+        "message": message,
+        "time": remind_ts,
+        "repeat": "weekly" if mode.value == "weekly" else None,
+        "weekday": weekday.value if weekday else None,
+        "deleted": False
+    }
+    supabase.table("reminders").insert(entry).execute()
+
+    dt_display = datetime.datetime.fromtimestamp(remind_ts, datetime.timezone.utc)
+    content = f"🔔 リマインダー設定完了\n⏰ {format_jst(dt_display)}"
+    if mode.value == "weekly":
+        content += f"\n🔁 毎週（{WEEKDAY_JP[weekday.value]}）"
+    content += f"\n💬 {message}"
+    if role:
+        content = f"<@&{role.id}> " + content
+
+    try:
+        if send_to == "dm":
+            await interaction.user.send(content)
+        else:
+            await target_channel.send(content)
+    except Exception as e:
+        print("送信失敗:", e)
+    await interaction.response.send_message("✅ リマインダーを設定しました！", ephemeral=True)
 
 # =====================
-# /remind_list（ページング対応）
+# /remind_list コマンド（ページング＋削除ボタン対応）
 # =====================
-@tree.command(name="remind_list", description="リマインド一覧を表示します（ページング対応）")
+@tree.command(name="remind_list", description="リマインド一覧を表示します")
 @app_commands.choices(scope=REMIND_LIST_SCOPE)
 async def remind_list(interaction: discord.Interaction, scope: app_commands.Choice[str]):
     user_id = interaction.user.id
     channel_id = interaction.channel.id
+    if scope.value == "me":
+        res = supabase.table("reminders").select("*").eq("user_id", user_id).eq("deleted", False).order("time").execute()
+    else:
+        res = supabase.table("reminders").select("*").eq("channel_id", channel_id).eq("deleted", False).order("time").execute()
 
-    query = supabase.table("reminders").select("*").eq("deleted", False).order("time")
-    if scope.value=="me": query=query.eq("user_id", user_id)
-    else: query=query.eq("channel_id", channel_id)
-
-    items = query.execute().data
-    if not items:
+    reminders = res.data
+    if not reminders:
         await interaction.response.send_message("📭 リマインドはありません", ephemeral=True)
         return
 
-    view = ListView(table="reminders", items=items, owner_id=user_id)
-    embed = view.create_embed()
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    view = Paginator(reminders, owner_id=user_id, per_page=5)
+    await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
 
 # =====================
-# /memo_list（ページング対応）
+# /memo コマンド
 # =====================
-@tree.command(name="memo_list", description="メモ一覧を表示します（ページング対応）")
+@tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
+async def memo(interaction: discord.Interaction, time: str, message: str, channel: discord.TextChannel | None = None, dm: bool | None = False):
+    try:
+        dt = parse_datetime_input(time)
+        memo_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+    except Exception as e:
+        await interaction.response.send_message(f"❌ 時刻の指定が不正です\n{e}", ephemeral=True)
+        return
+
+    send_to = "dm" if dm else "channel"
+    target_channel = channel or interaction.channel
+    memo_uid = str(uuid.uuid4())
+
+    try:
+        supabase.table("memos").insert({
+            "uid": memo_uid,
+            "user_id": interaction.user.id,
+            "channel_id": None if dm else target_channel.id,
+            "send_to": send_to,
+            "message": message,
+            "time": memo_ts,
+            "deleted": False
+        }).execute()
+    except Exception as e:
+        await interaction.response.send_message(f"❌ メモの保存に失敗しました\n{e}", ephemeral=True)
+        return
+
+    dt_utc = datetime.datetime.fromtimestamp(memo_ts, datetime.timezone.utc)
+    embed = discord.Embed(title="📝 メモ", description=message, color=discord.Color.blurple(), timestamp=dt_utc)
+    embed.add_field(name="🕒 時刻", value=format_jst(dt_utc), inline=False)
+    embed.set_footer(text=f"by {interaction.user.display_name}")
+
+    try:
+        if send_to == "dm":
+            await interaction.user.send(embed=embed)
+        else:
+            await target_channel.send(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ メモ送信に失敗しました\n{e}", ephemeral=True)
+        return
+
+    await interaction.response.send_message("✅ メモを保存しました（再起動後も残ります）", ephemeral=True)
+
+# =====================
+# /memo_list コマンド（ページング＋削除ボタン）
+# =====================
+@tree.command(name="memo_list", description="保存されたメモ一覧を表示します")
 @app_commands.choices(scope=LIST_SCOPE)
 async def memo_list(interaction: discord.Interaction, scope: app_commands.Choice[str]):
     user_id = interaction.user.id
     channel_id = interaction.channel.id
+    if scope.value == "me":
+        res = supabase.table("memos").select("*").eq("user_id", user_id).eq("deleted", False).order("time").execute()
+    else:
+        res = supabase.table("memos").select("*").eq("channel_id", channel_id).eq("deleted", False).order("time").execute()
 
-    query = supabase.table("memos").select("*").eq("deleted", False).order("time")
-    if scope.value=="me": query=query.eq("user_id", user_id)
-    else: query=query.eq("channel_id", channel_id)
-
-    items = query.execute().data
-    if not items:
+    memos = res.data
+    if not memos:
         await interaction.response.send_message("📭 メモはありません", ephemeral=True)
         return
 
-    view = ListView(table="memos", items=items, owner_id=user_id)
-    embed = view.create_embed()
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    view = Paginator(memos, owner_id=user_id, per_page=5)
+    await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
 
 # =====================
 # 起動
