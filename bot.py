@@ -88,17 +88,19 @@ async def check_reminders():
     now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
     res = supabase.table("reminders").select("*").eq("deleted", False).execute()
     for r in res.data or []:
-        if r["time"] <= now_ts:
+        if not r.get("time"):
+            continue
+        if float(r["time"]) <= now_ts:
             try:
-                dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
-                content = f"⏰ {format_jst(dt)}\n💬 {r['message']}"
+                dt = datetime.datetime.fromtimestamp(float(r["time"]), datetime.timezone.utc)
+                content = f"⏰ {format_jst(dt)}\n💬 {r.get('message','')}"
                 if r.get("role_id"):
                     content = f"<@&{r['role_id']}> " + content
-                if r["send_to"] == "dm":
-                    user = await client.fetch_user(r["user_id"])
+                if r.get("send_to") == "dm":
+                    user = await client.fetch_user(int(r["user_id"]))
                     await user.send(content)
                 else:
-                    ch = client.get_channel(r["channel_id"])
+                    ch = client.get_channel(int(r["channel_id"]))
                     if ch:
                         await ch.send(content)
 
@@ -182,12 +184,12 @@ async def remind(
     target_channel = channel or interaction.channel
     entry = {
         "uid": str(uuid.uuid4()),
-        "user_id": interaction.user.id,
-        "channel_id": None if dm else target_channel.id,
-        "role_id": role.id if role else None,
+        "user_id": int(interaction.user.id),
+        "channel_id": None if dm else int(target_channel.id),
+        "role_id": int(role.id) if role else None,
         "send_to": send_to,
         "message": message,
-        "time": remind_ts,
+        "time": float(remind_ts),
         "repeat": "weekly" if mode.value == "weekly" else None,
         "weekday": weekday.value if weekday else None,
         "deleted": False
@@ -237,11 +239,11 @@ async def memo(
     try:
         supabase.table("memos").insert({
             "uid": memo_uid,
-            "user_id": interaction.user.id,
-            "channel_id": None if dm else target_channel.id,
+            "user_id": int(interaction.user.id),
+            "channel_id": None if dm else int(target_channel.id),
             "send_to": send_to,
             "message": message,
-            "time": memo_ts,
+            "time": float(memo_ts),
             "deleted": False
         }).execute()
     except Exception as e:
@@ -262,7 +264,7 @@ async def memo(
     await interaction.response.send_message("✅ メモを保存しました", ephemeral=True)
 
 # =======================
-# 1ページ5件表示＋削除ビュー（作成者以外は削除不可）
+# Paginator（作成者のみ削除可能）
 # =======================
 ITEMS_PER_PAGE = 5
 
@@ -270,23 +272,20 @@ class Paginator(discord.ui.View):
     def __init__(self, items, user_id, item_type="memo"):
         super().__init__(timeout=None)
         self.items = items
-        self.user_id = user_id  # メニュー操作可能ユーザー（リスト表示者）
+        self.user_id = user_id
         self.item_type = item_type
         self.page = 0
         # 初期化
         self.delete_select.options = []
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # ページ送りは誰でも操作可
         return True
 
     def get_page_items(self):
-        start = self.page * ITEMS_PER_PAGE
-        end = start + ITEMS_PER_PAGE
-        return self.items[start:end]
+        return self.items[self.page*ITEMS_PER_PAGE:(self.page+1)*ITEMS_PER_PAGE]
 
     def total_pages(self):
-        return (len(self.items) - 1) // ITEMS_PER_PAGE + 1
+        return max(1, (len(self.items)-1)//ITEMS_PER_PAGE + 1)
 
     def current_embed(self):
         page_items = self.get_page_items()
@@ -297,25 +296,28 @@ class Paginator(discord.ui.View):
             color=discord.Color.green() if self.item_type=="memo" else discord.Color.orange()
         )
         for i, item in enumerate(page_items):
-            dt_utc = datetime.datetime.fromtimestamp(item["time"], datetime.timezone.utc)
-            where = "📩 DM" if item["send_to"]=="dm" else "📢 チャンネル"
+            try:
+                dt_utc = datetime.datetime.fromtimestamp(float(item["time"]), datetime.timezone.utc)
+            except:
+                dt_utc = datetime.datetime.now(datetime.timezone.utc)
+            where = "📩 DM" if item.get("send_to")=="dm" else "📢 チャンネル"
             repeat = ""
             if self.item_type=="reminder" and item.get("repeat")=="weekly":
                 repeat = f"（毎週 {WEEKDAY_JP.get(item.get('weekday',''), '')}）"
-            embed.add_field(name=f"{i+1}. {where}｜{format_jst(dt_utc)} {repeat}", value=item["message"], inline=False)
+            embed.add_field(name=f"{i+1}. {where}｜{format_jst(dt_utc)} {repeat}", value=item.get("message",""), inline=False)
         return embed
 
     @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.page > 0:
+        if self.page>0:
             self.page -= 1
             await self.update_select_options(interaction.user.id)
             await interaction.response.edit_message(embed=self.current_embed(), view=self)
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.page < self.total_pages() - 1:
-            self.page += 1
+        if self.page<self.total_pages()-1:
+            self.page +=1
             await self.update_select_options(interaction.user.id)
             await interaction.response.edit_message(embed=self.current_embed(), view=self)
 
@@ -327,21 +329,20 @@ class Paginator(discord.ui.View):
             await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
             return
         page_items = self.get_page_items()
-        if idx >= len(page_items):
+        if idx>=len(page_items):
             await interaction.response.send_message("❌ 選択が無効です", ephemeral=True)
             return
         item = page_items[idx]
 
-        # 作成者チェック
-        if interaction.user.id != item["user_id"]:
+        if interaction.user.id != int(item.get("user_id",0)):
             await interaction.response.send_message("❌ あなたはこのアイテムを削除できません", ephemeral=True)
             return
 
         table_name = "memos" if self.item_type=="memo" else "reminders"
-        supabase.table(table_name).update({"deleted": True}).eq("uid", item["uid"]).execute()
+        supabase.table(table_name).update({"deleted": True}).eq("uid", item.get("uid")).execute()
         self.items.remove(item)
-        if self.page >= self.total_pages():
-            self.page = max(0, self.total_pages()-1)
+        if self.page>=self.total_pages():
+            self.page=max(0,self.total_pages()-1)
         if self.items:
             await self.update_select_options(interaction.user.id)
             await interaction.response.edit_message(embed=self.current_embed(), view=self)
@@ -349,15 +350,11 @@ class Paginator(discord.ui.View):
             await interaction.response.edit_message(content="📭 すべて削除されました", embed=None, view=None)
 
     async def update_select_options(self, current_user_id):
-        # 選択肢は現在のページのアイテムから作成者のみ表示
-        self.delete_select.options = []
-        for i, item in enumerate(self.get_page_items()):
-            label = item['message'][:50]
-            # 作成者以外は選択できないようにグレーアウト
-            disabled = item["user_id"] != current_user_id
-            self.delete_select.options.append(
-                discord.SelectOption(label=f"{i+1}. {label}", value=str(i+1), description=("他人のアイテム" if disabled else None), default=False, emoji=None, disabled=disabled)
-            )
+        self.delete_select.options=[]
+        for i,item in enumerate(self.get_page_items()):
+            label=item.get("message","")[:50]
+            disabled=int(item.get("user_id",0))!=current_user_id
+            self.delete_select.options.append(discord.SelectOption(label=f"{i+1}. {label}", value=str(i+1), disabled=disabled))
 
 # =======================
 # memo_list
@@ -371,12 +368,12 @@ async def memo_list(interaction: discord.Interaction, scope: app_commands.Choice
         res = supabase.table("memos").select("*").eq("user_id", user_id).eq("deleted", False).order("time").execute()
     else:
         res = supabase.table("memos").select("*").eq("channel_id", channel_id).eq("deleted", False).order("time").execute()
-    memos = res.data
+    memos = res.data or []
     if not memos:
         await interaction.response.send_message("📭 メモはありません", ephemeral=True)
         return
     view = Paginator(memos, user_id, item_type="memo")
-    await view.update_select_options()
+    await view.update_select_options(user_id)
     await interaction.response.send_message(embed=view.current_embed(), view=view, ephemeral=True)
 
 # =======================
@@ -391,20 +388,20 @@ async def remind_list(interaction: discord.Interaction, scope: app_commands.Choi
         res = supabase.table("reminders").select("*").eq("user_id", user_id).eq("deleted", False).order("time").execute()
     else:
         res = supabase.table("reminders").select("*").eq("channel_id", channel_id).eq("deleted", False).order("time").execute()
-    reminders = res.data
+    reminders = res.data or []
     if not reminders:
         await interaction.response.send_message("📭 リマインドはありません", ephemeral=True)
         return
     view = Paginator(reminders, user_id, item_type="reminder")
-    await view.update_select_options()
+    await view.update_select_options(user_id)
     await interaction.response.send_message(embed=view.current_embed(), view=view, ephemeral=True)
 
 # =====================
 # 起動
 # =====================
-if __name__ == "__main__":
+if __name__=="__main__":
     import threading
     def run_bot():
         client.run(TOKEN)
     threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
