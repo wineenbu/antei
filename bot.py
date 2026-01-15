@@ -272,7 +272,7 @@ async def remind(
     await interaction.response.send_message(
         "✅ リマインダーを設定しました！",
         ephemeral=True
-    )s
+    )
 
 # =====================
 # /remind_list
