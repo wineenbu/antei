@@ -259,7 +259,7 @@ async def memo(
     except Exception as e:
         await interaction.response.send_message(f"❌ メモ送信に失敗しました\n{e}", ephemeral=True)
         return
-    await interaction.response.send_message("✅ メモを保存しました（再起動後も残ります）", ephemeral=True)
+    await interaction.response.send_message("✅ メモを保存しました", ephemeral=True)
 
 # =======================
 # 1ページ5件表示＋削除ビュー
