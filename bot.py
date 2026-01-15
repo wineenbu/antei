@@ -346,7 +346,7 @@ async def remind_list(
         ephemeral=True
     )
 
-@tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
+@tree.command(name="memo2", description="Embed形式のメモを保存＆送信します")
 async def memo(
     interaction: discord.Interaction,
     time: str,
