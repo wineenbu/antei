@@ -7,19 +7,25 @@ from discord.ext import tasks
 from flask import Flask
 from supabase import create_client
 
-# === Flask（Render用）===
+# =====================
+# Flask（Render用）
+# =====================
 app = Flask(__name__)
 
 @app.route("/")
 def home():
     return "Bot is running!"
 
-# === Discord Bot ===
+# =====================
+# Discord Bot
+# =====================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 if not TOKEN:
     raise ValueError("DISCORD_TOKEN が設定されていません")
 
-# === Supabase ===
+# =====================
+# Supabase
+# =====================
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -28,12 +34,29 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-# === JST 表示 ===
+# =====================
+# JST 表示
+# =====================
 def format_jst(dt: datetime.datetime):
     jst = datetime.timezone(datetime.timedelta(hours=9))
     return dt.astimezone(jst).strftime("%Y年%m月%d日 %H:%M")
 
-# === 日時パース（JST入力想定）===
+# =====================
+# 曜日表示用
+# =====================
+WEEKDAY_JP = {
+    "mon": "月曜日",
+    "tue": "火曜日",
+    "wed": "水曜日",
+    "thu": "木曜日",
+    "fri": "金曜日",
+    "sat": "土曜日",
+    "sun": "日曜日",
+}
+
+# =====================
+# 日時パース（JST入力）
+# =====================
 def parse_datetime_input(time_str: str) -> datetime.datetime:
     formats = [
         "%Y-%m-%dT%H:%M",
@@ -57,7 +80,9 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
             continue
     raise ValueError("日時形式が不正です")
 
-# === リマインダー監視 ===
+# =====================
+# リマインダー監視
+# =====================
 @tasks.loop(seconds=30)
 async def check_reminders():
     now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
@@ -99,7 +124,9 @@ async def check_reminders():
             except Exception as e:
                 print("送信失敗:", e)
 
-# === 削除ボタン ===
+# =====================
+# 削除ボタン
+# =====================
 class ReminderDeleteView(discord.ui.View):
     def __init__(self, uid, owner_id):
         super().__init__(timeout=None)
@@ -121,14 +148,18 @@ class ReminderDeleteView(discord.ui.View):
             content="🗑 削除しました", view=None
         )
 
-# === on_ready ===
+# =====================
+# on_ready
+# =====================
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
     await tree.sync()
     check_reminders.start()
 
-# === 曜日 Choice ===
+# =====================
+# 曜日 Choice
+# =====================
 WEEKDAYS = [
     app_commands.Choice(name="月曜日", value="mon"),
     app_commands.Choice(name="火曜日", value="tue"),
@@ -139,9 +170,9 @@ WEEKDAYS = [
     app_commands.Choice(name="日曜日", value="sun"),
 ]
 
-# ======================
+# =====================
 # /remind
-# ======================
+# =====================
 @tree.command(name="remind", description="リマインダーを設定します")
 @app_commands.choices(
     mode=[
@@ -202,14 +233,13 @@ async def remind(
     }
 
     supabase.table("reminders").insert(entry).execute()
-
     await interaction.response.send_message("✅ リマインダーを設定しました！", ephemeral=True)
-# ======================
+
+# =====================
 # /remind_list
-# ======================
+# =====================
 @tree.command(name="remind_list", description="リマインダー一覧")
 async def remind_list(interaction: discord.Interaction):
-    # ★ これが超重要（3秒ルール回避）
     await interaction.response.defer(ephemeral=True)
 
     res = supabase.table("reminders") \
@@ -232,7 +262,16 @@ async def remind_list(interaction: discord.Interaction):
 
     for r in reminders:
         dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
-        content = f"⏰ {format_jst(dt)}\n💬 {r['message']}"
+
+        repeat_info = ""
+        if r.get("repeat") == "weekly":
+            repeat_info = f"\n🔁 毎週（{WEEKDAY_JP.get(r.get('weekday'), '不明')}）"
+
+        content = (
+            f"⏰ {format_jst(dt)}"
+            f"{repeat_info}\n"
+            f"💬 {r['message']}"
+        )
 
         await interaction.followup.send(
             content=content,
@@ -240,8 +279,9 @@ async def remind_list(interaction: discord.Interaction):
             ephemeral=True
         )
 
-
-# === 起動 ===
+# =====================
+# 起動
+# =====================
 if __name__ == "__main__":
     import threading
 
