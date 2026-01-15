@@ -275,6 +275,14 @@ async def remind(
     )
 
 # =====================
+# /remind_list 表示範囲 Choice
+# =====================
+LIST_SCOPE = [
+    app_commands.Choice(name="自分が設定したリマインド", value="mine"),
+    app_commands.Choice(name="このチャンネルのリマインド", value="channel"),
+]
+
+# =====================
 # /remind_list
 # =====================
 @tree.command(name="remind_list", description="リマインダー一覧")
@@ -283,8 +291,10 @@ async def remind_list(
     interaction: discord.Interaction,
     scope: app_commands.Choice[str]
 ):
+    # 3秒ルール回避
     await interaction.response.defer(ephemeral=True)
 
+    # === 共通クエリ ===
     query = supabase.table("reminders") \
         .select("*") \
         .eq("deleted", False)
@@ -292,6 +302,7 @@ async def remind_list(
     # === 表示範囲切り替え ===
     if scope.value == "mine":
         query = query.eq("user_id", interaction.user.id)
+
     elif scope.value == "channel":
         if not interaction.channel:
             await interaction.followup.send(
@@ -299,8 +310,10 @@ async def remind_list(
                 ephemeral=True
             )
             return
+
         query = query.eq("channel_id", interaction.channel.id)
 
+    # === 実行 ===
     res = query.order("time").execute()
     reminders = res.data or []
 
@@ -311,18 +324,29 @@ async def remind_list(
         )
         return
 
-    title = "👤 自分のリマインド" if scope.value == "mine" else "📢 このチャンネルのリマインド"
+    title = (
+        "👤 自分が設定したリマインド"
+        if scope.value == "mine"
+        else "📢 このチャンネルのリマインド"
+    )
+
     await interaction.followup.send(
         f"{title}\n📋 {len(reminders)} 件",
         ephemeral=True
     )
 
+    # === 各リマインド表示 ===
     for r in reminders:
-        dt = datetime.datetime.fromtimestamp(r["time"], datetime.timezone.utc)
+        dt = datetime.datetime.fromtimestamp(
+            r["time"],
+            datetime.timezone.utc
+        )
 
         repeat_info = ""
         if r.get("repeat") == "weekly":
-            repeat_info = f"\n🔁 毎週（{WEEKDAY_JP.get(r.get('weekday'), '不明')}）"
+            repeat_info = (
+                f"\n🔁 毎週（{WEEKDAY_JP.get(r.get('weekday'), '不明')}）"
+            )
 
         content = (
             f"⏰ {format_jst(dt)}"
@@ -330,17 +354,19 @@ async def remind_list(
             f"💬 {r['message']}"
         )
 
-        view = None
         # 自分のリマインドだけ削除ボタン表示
+        view = None
         if r["user_id"] == interaction.user.id:
-            view = ReminderDeleteView(r["uid"], interaction.user.id)
+            view = ReminderDeleteView(
+                r["uid"],
+                interaction.user.id
+            )
 
         await interaction.followup.send(
             content=content,
             view=view,
             ephemeral=True
         )
-
 
 # =====================
 # 起動
