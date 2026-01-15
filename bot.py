@@ -193,17 +193,21 @@ async def remind(
 ):
     if mode.value == "weekly" and not weekday:
         await interaction.response.send_message(
-            "❌ 毎週モードの場合は曜日を選択してください", ephemeral=True
+            "❌ 毎週モードの場合は曜日を選択してください",
+            ephemeral=True
         )
         return
 
+    # === 時刻計算 ===
     try:
         if mode.value == "at":
             dt = parse_datetime_input(time)
         else:
             hhmm = datetime.datetime.strptime(time, "%H:%M")
             now = datetime.datetime.now()
-            target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0)
+            target = now.replace(
+                hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0
+            )
             weekday_map = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
             wd = weekday_map[weekday.value]
             days_ahead = (wd - target.weekday()) % 7
@@ -216,9 +220,11 @@ async def remind(
         await interaction.response.send_message(f"❌ {e}", ephemeral=True)
         return
 
+    # === 送信先 ===
     send_to = "dm" if dm else "channel"
     target_channel = channel or interaction.channel
 
+    # === DB保存 ===
     entry = {
         "uid": str(uuid.uuid4()),
         "user_id": interaction.user.id,
@@ -233,7 +239,40 @@ async def remind(
     }
 
     supabase.table("reminders").insert(entry).execute()
-    await interaction.response.send_message("✅ リマインダーを設定しました！", ephemeral=True)
+
+    # =====================
+    # 設定完了メッセージ（← これが追加）
+    # =====================
+    dt_display = datetime.datetime.fromtimestamp(
+        remind_ts, datetime.timezone.utc
+    )
+
+    content = (
+        "🔔 リマインダー設定完了\n"
+        f"⏰ {format_jst(dt_display)}"
+    )
+
+    if mode.value == "weekly":
+        content += f"\n🔁 毎週（{WEEKDAY_JP[weekday.value]}）"
+
+    content += f"\n💬 {message}"
+
+    if role:
+        content = f"<@&{role.id}> " + content
+
+    try:
+        if send_to == "dm":
+            await interaction.user.send(content)
+        else:
+            await target_channel.send(content)
+    except Exception as e:
+        print("設定完了メッセージ送信失敗:", e)
+
+    # interaction 応答（3秒ルール用）
+    await interaction.response.send_message(
+        "✅ リマインダーを設定しました！",
+        ephemeral=True
+    )s
 
 # =====================
 # /remind_list
