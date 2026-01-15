@@ -354,35 +354,55 @@ async def memo(
     channel: discord.TextChannel | None = None,
     dm: bool | None = False,
 ):
-    # === 時刻パース ===
+    # =====================
+    # 時刻パース（JST入力）
+    # =====================
     try:
         dt = parse_datetime_input(time)
-        remind_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+        memo_ts = (dt - datetime.timedelta(hours=9)).timestamp()
     except Exception as e:
         await interaction.response.send_message(
-            f"❌ {e}", ephemeral=True
+            f"❌ 時刻の指定が不正です\n{e}",
+            ephemeral=True
         )
         return
 
+    # =====================
+    # 送信先判定
+    # =====================
     send_to = "dm" if dm else "channel"
     target_channel = channel or interaction.channel
 
-    memo_id = str(uuid.uuid4())
+    # =====================
+    # UID生成（memos.uid 用）
+    # =====================
+    memo_uid = str(uuid.uuid4())
 
-    # === DB保存 ===
-    supabase.table("memos").insert({
-        "uid": memo_uid,
-        "user_id": interaction.user.id,
-        "channel_id": None if dm else target_channel.id,
-        "send_to": send_to,
-        "message": message,
-        "time": remind_ts,
-        "deleted": False
-    }).execute()
+    # =====================
+    # DB保存
+    # =====================
+    try:
+        supabase.table("memos").insert({
+            "uid": memo_uid,
+            "user_id": interaction.user.id,
+            "channel_id": None if dm else target_channel.id,
+            "send_to": send_to,
+            "message": message,
+            "time": memo_ts,
+            "deleted": False
+        }).execute()
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ メモの保存に失敗しました\n{e}",
+            ephemeral=True
+        )
+        return
 
-    # === Embed作成 ===
+    # =====================
+    # Embed作成
+    # =====================
     dt_utc = datetime.datetime.fromtimestamp(
-        remind_ts, datetime.timezone.utc
+        memo_ts, datetime.timezone.utc
     )
 
     embed = discord.Embed(
@@ -402,22 +422,29 @@ async def memo(
         text=f"by {interaction.user.display_name}"
     )
 
-    # === 送信 ===
+    # =====================
+    # メモ送信
+    # =====================
     try:
         if send_to == "dm":
             await interaction.user.send(embed=embed)
         else:
             await target_channel.send(embed=embed)
-    except Exception:
+    except Exception as e:
         await interaction.response.send_message(
-            "❌ メモ送信に失敗しました", ephemeral=True
+            f"❌ メモ送信に失敗しました\n{e}",
+            ephemeral=True
         )
         return
 
+    # =====================
+    # interaction 応答（3秒ルール）
+    # =====================
     await interaction.response.send_message(
         "✅ メモを保存しました（再起動後も残ります）",
         ephemeral=True
     )
+
 LIST_SCOPE = [
     app_commands.Choice(name="自分のメモ", value="me"),
     app_commands.Choice(name="このチャンネルのメモ", value="channel"),
