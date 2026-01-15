@@ -278,24 +278,42 @@ async def remind(
 # /remind_list
 # =====================
 @tree.command(name="remind_list", description="リマインダー一覧")
-async def remind_list(interaction: discord.Interaction):
+@app_commands.choices(scope=LIST_SCOPE)
+async def remind_list(
+    interaction: discord.Interaction,
+    scope: app_commands.Choice[str]
+):
     await interaction.response.defer(ephemeral=True)
 
-    res = supabase.table("reminders") \
+    query = supabase.table("reminders") \
         .select("*") \
-        .eq("user_id", interaction.user.id) \
-        .eq("deleted", False) \
-        .order("time") \
-        .execute()
+        .eq("deleted", False)
 
+    # === 表示範囲切り替え ===
+    if scope.value == "mine":
+        query = query.eq("user_id", interaction.user.id)
+    elif scope.value == "channel":
+        if not interaction.channel:
+            await interaction.followup.send(
+                "❌ チャンネル内でのみ使用できます",
+                ephemeral=True
+            )
+            return
+        query = query.eq("channel_id", interaction.channel.id)
+
+    res = query.order("time").execute()
     reminders = res.data or []
 
     if not reminders:
-        await interaction.followup.send("📭 リマインダーはありません", ephemeral=True)
+        await interaction.followup.send(
+            "📭 リマインダーはありません",
+            ephemeral=True
+        )
         return
 
+    title = "👤 自分のリマインド" if scope.value == "mine" else "📢 このチャンネルのリマインド"
     await interaction.followup.send(
-        f"📋 {len(reminders)} 件のリマインダーがあります",
+        f"{title}\n📋 {len(reminders)} 件",
         ephemeral=True
     )
 
@@ -312,11 +330,17 @@ async def remind_list(interaction: discord.Interaction):
             f"💬 {r['message']}"
         )
 
+        view = None
+        # 自分のリマインドだけ削除ボタン表示
+        if r["user_id"] == interaction.user.id:
+            view = ReminderDeleteView(r["uid"], interaction.user.id)
+
         await interaction.followup.send(
             content=content,
-            view=ReminderDeleteView(r["uid"], interaction.user.id),
+            view=view,
             ephemeral=True
         )
+
 
 # =====================
 # 起動
