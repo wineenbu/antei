@@ -209,6 +209,9 @@ async def remind(
 # ======================
 @tree.command(name="remind_list", description="リマインダー一覧")
 async def remind_list(interaction: discord.Interaction):
+    # ★ これが超重要（3秒ルール回避）
+    await interaction.response.defer(ephemeral=True)
+
     res = supabase.table("reminders") \
         .select("*") \
         .eq("user_id", interaction.user.id) \
@@ -219,10 +222,10 @@ async def remind_list(interaction: discord.Interaction):
     reminders = res.data or []
 
     if not reminders:
-        await interaction.response.send_message("📭 リマインダーはありません", ephemeral=True)
+        await interaction.followup.send("📭 リマインダーはありません", ephemeral=True)
         return
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"📋 {len(reminders)} 件のリマインダーがあります",
         ephemeral=True
     )
@@ -236,6 +239,7 @@ async def remind_list(interaction: discord.Interaction):
             view=ReminderDeleteView(r["uid"], interaction.user.id),
             ephemeral=True
         )
+
 
 # === 起動 ===
 if __name__ == "__main__":
