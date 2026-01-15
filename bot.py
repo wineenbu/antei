@@ -277,96 +277,212 @@ async def remind(
 # =====================
 # /remind_list 表示範囲 Choice
 # =====================
-LIST_SCOPE = [
-    app_commands.Choice(name="自分が設定したリマインド", value="mine"),
+REMIND_LIST_SCOPE = [
+    app_commands.Choice(name="自分のリマインド", value="me"),
     app_commands.Choice(name="このチャンネルのリマインド", value="channel"),
 ]
 
-# =====================
-# /remind_list
-# =====================
-@tree.command(name="remind_list", description="リマインダー一覧")
-@app_commands.choices(scope=LIST_SCOPE)
+@tree.command(name="remind_list", description="リマインド一覧を表示します")
+@app_commands.choices(scope=REMIND_LIST_SCOPE)
 async def remind_list(
     interaction: discord.Interaction,
     scope: app_commands.Choice[str]
 ):
-    # 3秒ルール回避
-    await interaction.response.defer(ephemeral=True)
+    user_id = interaction.user.id
+    channel_id = interaction.channel.id
 
-    # === 共通クエリ ===
-    query = supabase.table("reminders") \
-        .select("*") \
-        .eq("deleted", False)
+    if scope.value == "me":
+        res = supabase.table("reminders") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .eq("deleted", False) \
+            .order("time") \
+            .execute()
+    else:
+        res = supabase.table("reminders") \
+            .select("*") \
+            .eq("channel_id", channel_id) \
+            .eq("deleted", False) \
+            .order("time") \
+            .execute()
 
-    # === 表示範囲切り替え ===
-    if scope.value == "mine":
-        query = query.eq("user_id", interaction.user.id)
-
-    elif scope.value == "channel":
-        if not interaction.channel:
-            await interaction.followup.send(
-                "❌ チャンネル内でのみ使用できます",
-                ephemeral=True
-            )
-            return
-
-        query = query.eq("channel_id", interaction.channel.id)
-
-    # === 実行 ===
-    res = query.order("time").execute()
-    reminders = res.data or []
+    reminders = res.data
 
     if not reminders:
-        await interaction.followup.send(
-            "📭 リマインダーはありません",
+        await interaction.response.send_message(
+            "📭 リマインドはありません",
             ephemeral=True
         )
         return
 
-    title = (
-        "👤 自分が設定したリマインド"
-        if scope.value == "mine"
-        else "📢 このチャンネルのリマインド"
+    embed = discord.Embed(
+        title="⏰ リマインド一覧",
+        color=discord.Color.orange()
     )
 
-    await interaction.followup.send(
-        f"{title}\n📋 {len(reminders)} 件",
+    for r in reminders[:10]:
+        dt_utc = datetime.datetime.fromtimestamp(
+            r["time"], datetime.timezone.utc
+        )
+
+        where = "📩 DM" if r["send_to"] == "dm" else "📢 チャンネル"
+
+        repeat = ""
+        if r.get("repeat_type") == "weekly":
+            repeat = f"（毎週 {r['weekday']}）"
+
+        embed.add_field(
+            name=f"{where}｜{format_jst(dt_utc)} {repeat}",
+            value=r["message"][:100],
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"表示範囲：{scope.name}｜最大10件"
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
         ephemeral=True
     )
 
-    # === 各リマインド表示 ===
-    for r in reminders:
-        dt = datetime.datetime.fromtimestamp(
-            r["time"],
-            datetime.timezone.utc
+@tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
+async def memo(
+    interaction: discord.Interaction,
+    time: str,
+    message: str,
+    channel: discord.TextChannel | None = None,
+    dm: bool | None = False,
+):
+    # === 時刻パース ===
+    try:
+        dt = parse_datetime_input(time)
+        remind_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ {e}", ephemeral=True
         )
+        return
 
-        repeat_info = ""
-        if r.get("repeat") == "weekly":
-            repeat_info = (
-                f"\n🔁 毎週（{WEEKDAY_JP.get(r.get('weekday'), '不明')}）"
-            )
+    send_to = "dm" if dm else "channel"
+    target_channel = channel or interaction.channel
 
-        content = (
-            f"⏰ {format_jst(dt)}"
-            f"{repeat_info}\n"
-            f"💬 {r['message']}"
+    memo_id = str(uuid.uuid4())
+
+    # === DB保存 ===
+    supabase.table("memos").insert({
+        "id": memo_id,
+        "user_id": interaction.user.id,
+        "channel_id": None if dm else target_channel.id,
+        "send_to": send_to,
+        "message": message,
+        "time": remind_ts,
+        "deleted": False
+    }).execute()
+
+    # === Embed作成 ===
+    dt_utc = datetime.datetime.fromtimestamp(
+        remind_ts, datetime.timezone.utc
+    )
+
+    embed = discord.Embed(
+        title="📝 メモ",
+        description=message,
+        color=discord.Color.blurple(),
+        timestamp=dt_utc
+    )
+
+    embed.add_field(
+        name="🕒 時刻",
+        value=format_jst(dt_utc),
+        inline=False
+    )
+
+    embed.set_footer(
+        text=f"by {interaction.user.display_name}"
+    )
+
+    # === 送信 ===
+    try:
+        if send_to == "dm":
+            await interaction.user.send(embed=embed)
+        else:
+            await target_channel.send(embed=embed)
+    except Exception:
+        await interaction.response.send_message(
+            "❌ メモ送信に失敗しました", ephemeral=True
         )
+        return
 
-        # 自分のリマインドだけ削除ボタン表示
-        view = None
-        if r["user_id"] == interaction.user.id:
-            view = ReminderDeleteView(
-                r["uid"],
-                interaction.user.id
-            )
+    await interaction.response.send_message(
+        "✅ メモを保存しました（再起動後も残ります）",
+        ephemeral=True
+    )
+LIST_SCOPE = [
+    app_commands.Choice(name="自分のメモ", value="me"),
+    app_commands.Choice(name="このチャンネルのメモ", value="channel"),
+]
 
-        await interaction.followup.send(
-            content=content,
-            view=view,
+@tree.command(name="memo_list", description="保存されたメモ一覧を表示します")
+@app_commands.choices(scope=LIST_SCOPE)
+async def memo_list(
+    interaction: discord.Interaction,
+    scope: app_commands.Choice[str]
+):
+    user_id = interaction.user.id
+    channel_id = interaction.channel.id
+
+    # === DB取得 ===
+    if scope.value == "me":
+        res = supabase.table("memos") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .eq("deleted", False) \
+            .order("time") \
+            .execute()
+    else:
+        res = supabase.table("memos") \
+            .select("*") \
+            .eq("channel_id", channel_id) \
+            .eq("deleted", False) \
+            .order("time") \
+            .execute()
+
+    memos = res.data
+
+    if not memos:
+        await interaction.response.send_message(
+            "📭 メモはありません",
             ephemeral=True
         )
+        return
+
+    embed = discord.Embed(
+        title="📝 メモ一覧",
+        color=discord.Color.green()
+    )
+
+    for memo in memos[:10]:
+        dt_utc = datetime.datetime.fromtimestamp(
+            memo["time"], datetime.timezone.utc
+        )
+
+        where = "📩 DM" if memo["send_to"] == "dm" else "📢 チャンネル"
+
+        embed.add_field(
+            name=f"{where}｜{format_jst(dt_utc)}",
+            value=memo["message"][:100],
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"表示範囲：{scope.name}｜最大10件"
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
 
 # =====================
 # 起動
