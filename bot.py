@@ -162,7 +162,7 @@ REMIND_LIST_SCOPE = [
 @tree.command(name="remind", description="リマインダーを設定します")
 @app_commands.describe(
     mode="リマインドの種類を選択します",
-    time="時刻（例: 2026-01-16 20:00 / 20:00）",
+    time="時刻（例: 2026-01-16 20:00 or 2026/01/16 20:00 or 01/16 20:00 or 20:00）",
     message="通知する内容",
     channel="送信先チャンネル（省略時は今のチャンネル）",
     dm="DMで送信する場合は true",
@@ -247,7 +247,7 @@ LIST_SCOPE = [
 
 @tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
 @app_commands.describe(
-    time="メモの時刻（例: 20:00 / 2026-01-16 20:00）",
+    time="時刻（例: 2026-01-16 20:00 or 2026/01/16 20:00 or 01/16 20:00 or 20:00）",
     message="保存するメモ内容",
     channel="送信先チャンネル（省略時は今のチャンネル）",
     dm="DMに送信する場合は true"
