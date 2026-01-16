@@ -160,6 +160,15 @@ REMIND_LIST_SCOPE = [
 ]
 
 @tree.command(name="remind", description="リマインダーを設定します")
+@app_commands.describe(
+    mode="リマインドの種類を選択します",
+    time="時刻（例: 2026-01-16 20:00 / 20:00）",
+    message="通知する内容",
+    channel="送信先チャンネル（省略時は今のチャンネル）",
+    dm="DMで送信する場合は true",
+    role="通知時にメンションするロール",
+    weekday="毎週リマインドする曜日（毎週モード時のみ）"
+)
 @app_commands.choices(
     mode=[
         app_commands.Choice(name="日時指定", value="at"),
@@ -237,6 +246,12 @@ LIST_SCOPE = [
 ]
 
 @tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
+@app_commands.describe(
+    time="メモの時刻（例: 20:00 / 2026-01-16 20:00）",
+    message="保存するメモ内容",
+    channel="送信先チャンネル（省略時は今のチャンネル）",
+    dm="DMに送信する場合は true"
+)
 async def memo(
     interaction: discord.Interaction,
     time: str,
