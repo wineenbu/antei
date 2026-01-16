@@ -35,6 +35,12 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =====================
+# Timezone 定義
+# =====================
+JST = datetime.timezone(datetime.timedelta(hours=9))
+UTC = datetime.timezone.utc
+
+# =====================
 # JST 表示
 # =====================
 def format_jst(dt: datetime.datetime):
@@ -65,20 +71,33 @@ def parse_datetime_input(time_str: str) -> datetime.datetime:
         "%m/%d %H:%M",
         "%H:%M",
     ]
-    now = datetime.datetime.now()
+
+    now = datetime.datetime.now(JST)
+
     for fmt in formats:
         try:
             dt = datetime.datetime.strptime(time_str, fmt)
+
             if fmt == "%m/%d %H:%M":
                 dt = dt.replace(year=now.year)
+
             elif fmt == "%H:%M":
-                dt = dt.replace(year=now.year, month=now.month, day=now.day)
-                if dt < now:
+                dt = dt.replace(
+                    year=now.year,
+                    month=now.month,
+                    day=now.day
+                )
+                if dt < now.replace(tzinfo=None):
                     dt += datetime.timedelta(days=1)
-            return dt
+
+            # ★ JST を明示的に付与（超重要）
+            return dt.replace(tzinfo=JST)
+
         except ValueError:
             continue
+
     raise ValueError("日時形式が不正です")
+
 
 # =====================
 # リマインダー監視
@@ -166,7 +185,7 @@ async def remind(
             dt = parse_datetime_input(time)
         else:
             hhmm = datetime.datetime.strptime(time, "%H:%M")
-            now = datetime.datetime.now()
+            now = datetime.datetime.now(JST)
             target = now.replace(hour=hhmm.hour, minute=hhmm.minute, second=0, microsecond=0)
             weekday_map = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
             wd = weekday_map[weekday.value]
@@ -174,7 +193,7 @@ async def remind(
             if days_ahead == 0 and target <= now:
                 days_ahead = 7
             dt = target + datetime.timedelta(days=days_ahead)
-        remind_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+        remind_ts = dt.astimezone(UTC).timestamp()
     except Exception as e:
         await interaction.response.send_message(f"❌ {e}", ephemeral=True)
         return
@@ -227,7 +246,7 @@ async def memo(
 ):
     try:
         dt = parse_datetime_input(time)
-        memo_ts = (dt - datetime.timedelta(hours=9)).timestamp()
+        memo_ts = dt.astimezone(UTC).timestamp()
     except Exception as e:
         await interaction.response.send_message(f"❌ 時刻の指定が不正です\n{e}", ephemeral=True)
         return
