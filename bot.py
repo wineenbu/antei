@@ -226,28 +226,13 @@ async def remind(
     if mode.value == "weekly":
         content += f"\n🔁 毎週（{WEEKDAY_JP[weekday.value]}）"
     content += f"\n💬 {message}"
-
-    # 送信先チェック
-if send_to == "dm":
-    await interaction.user.send(content)
-
-else:
-    if not target_channel:
-        await interaction.response.send_message(
-            "❌ 送信先チャンネルを取得できませんでした",
-            ephemeral=True
-        )
-        return
-
-    if not isinstance(target_channel, discord.TextChannel):
-        await interaction.response.send_message(
-            "❌ この場所には通知を送れません（スレッド等）",
-            ephemeral=True
-        )
-        return
-
-    await target_channel.send(content)
-
+    try:
+        if send_to == "dm":
+            await interaction.user.send(content)
+        else:
+            await target_channel.send(content)
+    except Exception as e:
+        print("設定完了メッセージ送信失敗:", e)
     await interaction.response.send_message("✅ リマインダーを設定しました！", ephemeral=True)
 
 # =====================
