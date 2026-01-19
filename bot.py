@@ -245,8 +245,8 @@ LIST_SCOPE = [
 
 @tree.command(name="memo", description="Embed形式のメモを保存＆送信します")
 @app_commands.describe(
-    time="時刻（例: 2026-01-16 20:00 or 2026/01/16 20:00 or 01/16 20:00 or 20:00）",
     message="保存するメモ内容",
+    time="時刻（例: 2026-01-16 20:00 or 2026/01/16 20:00 or 01/16 20:00 or 20:00）",
     channel="送信先チャンネル（省略時は今のチャンネル）",
     dm="DMに送信する場合は true"
 )
@@ -257,11 +257,12 @@ async def memo(
     channel: discord.TextChannel | None = None,
     dm: bool | None = False,
 ):
-    try:
+
+try:
     if time:
         dt = parse_datetime_input(time)
     else:
-        # time省略時は「今」
+        # time省略時は現在時刻
         dt = datetime.datetime.now(JST)
 
     memo_ts = dt.astimezone(UTC).timestamp()
@@ -272,6 +273,7 @@ except Exception as e:
         ephemeral=True
     )
     return
+
     send_to = "dm" if dm else "channel"
     target_channel = channel or interaction.channel
     memo_uid = str(uuid.uuid4())
