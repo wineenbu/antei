@@ -252,17 +252,26 @@ LIST_SCOPE = [
 )
 async def memo(
     interaction: discord.Interaction,
-    time: str,
     message: str,
+    time: str | None = None,
     channel: discord.TextChannel | None = None,
     dm: bool | None = False,
 ):
     try:
+    if time:
         dt = parse_datetime_input(time)
-        memo_ts = dt.astimezone(UTC).timestamp()
-    except Exception as e:
-        await interaction.response.send_message(f"❌ 時刻の指定が不正です\n{e}", ephemeral=True)
-        return
+    else:
+        # time省略時は「今」
+        dt = datetime.datetime.now(JST)
+
+    memo_ts = dt.astimezone(UTC).timestamp()
+
+except Exception as e:
+    await interaction.response.send_message(
+        f"❌ 時刻の指定が不正です\n{e}",
+        ephemeral=True
+    )
+    return
     send_to = "dm" if dm else "channel"
     target_channel = channel or interaction.channel
     memo_uid = str(uuid.uuid4())
