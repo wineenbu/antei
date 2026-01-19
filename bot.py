@@ -226,8 +226,6 @@ async def remind(
     if mode.value == "weekly":
         content += f"\n🔁 毎週（{WEEKDAY_JP[weekday.value]}）"
     content += f"\n💬 {message}"
-    if role:
-        content = f"<@&{role.id}> " + content
     try:
         if send_to == "dm":
             await interaction.user.send(content)
