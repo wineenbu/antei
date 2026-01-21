@@ -276,6 +276,18 @@ async def memo(
 
     target_channel = channel or interaction.channel
 
+entry = {
+    "uid": str(uuid.uuid4()),
+    "user_id": interaction.user.id,
+    "channel_id": None if dm else target_channel.id,
+    "send_to": "dm" if dm else "channel",
+    "message": message,
+    "time": memo_ts,
+    "deleted": False,
+}
+
+supabase.table("memos").insert(entry).execute()
+
     # --- Embed ---
     embed = discord.Embed(
         title="📝 メモ",
